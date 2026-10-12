@@ -1,0 +1,45 @@
+[project]
+name = "gloss"
+version = "0.1.0"
+description = "English vocabulary flashcards with Sinhala meanings and audio for Anki."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{name = "Dasun Sathasara"}]
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1",
+  "pydantic-settings>=2.8,<3", "google-genai>=1.0,<3",
+  "imageio-ffmpeg>=0.6,<1", "json-repair>=0.40,<1", "filelock>=3.18,<4",
+]
+
+[project.scripts]
+gloss = "gloss.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.urls]
+Repository = "https://github.com/dasun-sathsara/gloss"
+Issues = "https://github.com/dasun-sathsara/gloss/issues"
+
+[tool.hatch.build]
+exclude = ["src/gloss/assets/fonts/_StudioFeixenSansVariable.ttf", "frontend/public/_StudioFeixenSansVariable.ttf"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gloss"]
+
+[dependency-groups]
+dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "respx>=0.22,<1", "ruff>=0.12,<1", "ty==0.0.85"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

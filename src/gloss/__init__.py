@@ -1,0 +1,1 @@
+"""Gloss vocabulary application."""

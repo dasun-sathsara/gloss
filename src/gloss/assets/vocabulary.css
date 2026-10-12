@@ -1,0 +1,300 @@
+/* Dark Jade Glass tokens, with quieter green canvas and glass layers. */
+:root,
+:root.nightMode,
+:root.night_mode,
+body.card,
+body.nightMode,
+body.night_mode,
+.card.nightMode,
+.card.night_mode,
+.night_mode .card,
+.nightMode .card {
+  color-scheme: dark;
+  --on-accent: #090f0e;
+  --extra-bg: linear-gradient(135deg, rgba(129, 217, 180, 0.025), rgba(129, 217, 180, 0.05));
+  --code-bg: #101817;
+  --inline-code-bg: rgba(129, 217, 180, 0.12);
+  --syntax-keyword: #7ed6b1;
+  --syntax-string: #79cfcf;
+  --syntax-comment: #8b9d9a;
+  --syntax-function: #edb986;
+  --syntax-number: #dfc080;
+  --syntax-operator: var(--syntax-keyword);
+  --syntax-boolean: var(--syntax-number);
+  --table-head-bg: rgba(235, 240, 238, 0.04);
+  --table-stripe-bg: rgba(235, 240, 238, 0.02);
+
+  /* Canvas */
+  --bg-color: #0f1513;
+  --bg-gradient:
+    radial-gradient(ellipse 58% 85% at 10% 8%, rgba(43, 100, 72, 0.08), transparent 75%),
+    radial-gradient(ellipse 60% 70% at 96% 92%, rgba(37, 88, 77, 0.06), transparent 75%),
+    linear-gradient(145deg, #111716, #0f1413);
+
+  /* Card surface */
+  --card-bg: #19211f;
+  --card-bg-oklch: #19211f;
+
+  /* Text hierarchy */
+  --text-primary: #ebf0ee;
+  --text-primary-oklch: #ebf0ee;
+
+  --text-secondary: #b5c9c6;
+  --text-secondary-oklch: #b5c9c6;
+
+  --text-muted: #9eafac;
+  --text-muted-oklch: #9eafac;
+
+  --text-faint: #a4b2ad;
+  --text-faint-oklch: #a4b2ad;
+
+  --border-subtle: #273634;
+  --border-subtle-oklch: #273634;
+
+  --border-focus: #465b51;
+  --border-focus-oklch: #465b51;
+
+  /* Recall accent */
+  --accent-primary: #76dbb2;
+  --accent-primary-oklch: #76dbb2;
+
+  --accent-primary-light: rgba(129, 217, 180, 0.14);
+  --accent-primary-light-oklch: rgba(129, 217, 180, 0.14);
+
+  --accent-primary-hover: #a6e9cb;
+  --accent-primary-hover-oklch: #a6e9cb;
+
+  /* Dark Semantic Highlights */
+  --bold-text: #89e7c0;
+  --italic-text: #f2b67e;
+  --underline-color: #70b698;
+
+  --cloze-text: #76dbb2;
+  --cloze-bg: rgba(129, 217, 180, 0.1);
+  --cloze-border: #6bb796;
+
+  --link-color: #60d6d6;
+  --link-hover: #8aefee;
+
+  --mark-bg: #382c11;
+  --mark-text: #ebcd92;
+
+  /* Dark Surfaces & Shadows */
+  --meta-bg-gradient: linear-gradient(
+    135deg,
+    rgba(187, 238, 206, 0.025),
+    rgba(109, 192, 153, 0.018)
+  );
+  --divider-gradient: linear-gradient(
+    90deg,
+    transparent,
+    rgba(118, 219, 178, 0.45) 35%,
+    rgba(118, 219, 178, 0.45) 65%,
+    transparent
+  );
+
+  --shadow-card:
+    0 18px 42px -10px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(190, 244, 215, 0.055);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.45);
+  /* Callout colors share the palette saturation and adapt to night mode. */
+  --callout-note: #4abedf;
+  --callout-note-bg: rgba(91, 189, 218, 0.08);
+  --callout-tip: #70c38e;
+  --callout-tip-bg: rgba(120, 193, 146, 0.08);
+  --callout-warning: #d7a457;
+  --callout-warning-bg: rgba(211, 165, 99, 0.08);
+  --callout-danger: #ed918a;
+  --callout-danger-bg: rgba(231, 149, 142, 0.08);
+  --glass-fill: rgba(20, 27, 25, 0.83);
+  --glass-edge: rgba(172, 223, 194, 0.24);
+  --glass-sheen: linear-gradient(125deg, rgba(190, 244, 215, 0.035), transparent 42%);
+}
+
+/* Vocabulary uses the original card shell, glass, edge beam, divider and answer reveal. */
+.card {
+  font-size: 20px;
+}
+.gloss-card {
+  --card-max-width: 880px;
+  --card-min-height: auto;
+}
+.gloss-card .main {
+  gap: 20px;
+  padding: 28px 32px;
+}
+.gloss-card .meta-info {
+  padding: 12px 32px;
+}
+.gloss-card .deck {
+  font-size: 13px;
+}
+.gloss-word-row,
+.gloss-line {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.gloss-card .gloss-word-row {
+  flex-direction: row;
+}
+.gloss-word-row > :first-child,
+.gloss-line > :first-child {
+  min-width: 0;
+}
+.gloss-card .gloss-word {
+  font-size: 24px;
+  line-height: 1.4;
+  font-weight: var(--font-weight-semibold);
+}
+.gloss-pos {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+.gloss-definition {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.gloss-card .gloss-meaning,
+.gloss-sinhala {
+  font-size: 20px;
+  line-height: 1.55;
+}
+.gloss-sinhala {
+  color: var(--text-secondary);
+}
+.gloss-card .gloss-examples {
+  display: grid;
+  gap: 16px;
+  margin: 24px 0 0;
+  padding: 16px 20px;
+  list-style: none;
+  font-size: 18px;
+  line-height: 1.55;
+}
+.gloss-examples:empty {
+  display: none;
+}
+.gloss-card .gloss-examples li {
+  margin: 0;
+}
+.gloss-card .gloss-examples li::before {
+  content: none;
+}
+.gloss-audio,
+.gloss-word-audio {
+  flex: 0 0 auto;
+  line-height: 0;
+}
+.gloss-audio:empty,
+.gloss-word-audio:empty {
+  display: none;
+}
+.gloss-card audio,
+.gloss-card [hidden] {
+  display: none;
+}
+.gloss-card .gloss-play {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin: 0;
+  padding: 9px;
+  color: var(--accent-primary);
+  background: var(--accent-primary-light);
+  border: 1px solid var(--border-focus);
+  border-radius: 50%;
+  box-shadow: none;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--ease-out);
+}
+.gloss-card .gloss-play-icon {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: currentColor;
+  stroke: none;
+}
+.gloss-word-play::before,
+.gloss-word-play::after {
+  content: none;
+}
+.gloss-card .gloss-play:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+}
+.gloss-card .gloss-play:active {
+  transform: scale(0.95);
+}
+.gloss-card .gloss-play[aria-pressed="true"] {
+  background: var(--accent-primary);
+  color: var(--on-accent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .gloss-card .gloss-play:hover {
+    background: var(--accent-primary);
+    color: var(--on-accent);
+    transform: translateY(-1px);
+  }
+}
+.gloss-audio-error {
+  margin: 16px 0 0;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+.gloss-card ::selection {
+  background: var(--accent-primary-light);
+  color: var(--text-primary);
+}
+@media (max-width: 768px) {
+  .gloss-card .main {
+    padding: 20px 18px;
+    gap: 16px;
+  }
+  .gloss-card .meta-info {
+    padding: 12px 18px;
+  }
+  .gloss-card .gloss-word {
+    font-size: 24px;
+  }
+  .gloss-card .gloss-meaning,
+  .gloss-sinhala {
+    font-size: 18px;
+  }
+  .gloss-card .gloss-examples {
+    font-size: 16px;
+    padding: 14px;
+    margin-top: 20px;
+    gap: 16px;
+  }
+  .gloss-line {
+    gap: 12px;
+  }
+  .gloss-card .gloss-play {
+    width: 44px;
+    height: 44px;
+    padding: 11px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gloss-card .gloss-play:hover,
+  .gloss-card .gloss-play:active {
+    transform: none;
+  }
+}

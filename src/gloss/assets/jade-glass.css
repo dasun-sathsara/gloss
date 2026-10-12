@@ -1,0 +1,1394 @@
+/* Jade Glass
+Complete stylesheet for Basic X and Cloze X. Light and dark modes included.
+A subtle frosted-glass variant of Jade & Pearl; typography and layout preserved. */
+
+/* Original variable faces are loaded from Anki media; no static cuts are used. */
+@font-face {
+  font-family: "Studio Feixen Sans VF";
+  src: url("_StudioFeixenSansVariable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Studio Feixen Sans VF";
+  src: url("_StudioFeixenSansVariable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: italic;
+  font-variation-settings: "ital" 10;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("_GeistMonoVariable.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Geist Mono";
+  src: url("_GeistMonoVariable-Italic.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+}
+/* Map only the Sans and Mono roles this card family uses; no overlapping range face. */
+@font-face {
+  font-family: "Noto Sans Sinhala";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 400;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 400;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 420;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 400;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 520;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 540;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 550;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 540;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 600;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 580;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+
+@font-face {
+  font-family: "Noto Sans Sinhala Mobile";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 430;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 430;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala Mobile";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 450;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 430;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala Mobile";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 550;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 570;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala Mobile";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 580;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 570;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+@font-face {
+  font-family: "Noto Sans Sinhala Mobile";
+  src: url("_NotoSansSinhalaVariable.ttf") format("truetype");
+  font-weight: 630;
+  font-stretch: 62.5% 100%;
+  font-style: normal;
+  font-variation-settings: "wght" 610;
+  font-display: swap;
+  size-adjust: 88%;
+  unicode-range: U+0D80-0DFF, U+200C, U+200D, U+25CC;
+}
+
+
+:root {
+  font-synthesis: none;
+  color-scheme: light;
+  --on-accent: #fdfefb;
+  --extra-bg: linear-gradient(135deg, rgba(24, 115, 77, 0.025), rgba(24, 115, 77, 0.05));
+  --code-bg: #f3f6ef;
+  --inline-code-bg: var(--accent-primary-light);
+  --syntax-keyword: #1b6345;
+  --syntax-string: #176961;
+  --syntax-comment: #505f5a;
+  --syntax-function: #84501b;
+  --syntax-number: #76550c;
+  --syntax-operator: var(--syntax-keyword);
+  --syntax-boolean: var(--syntax-number);
+  --table-head-bg: rgba(12, 28, 26, 0.025);
+  --table-stripe-bg: rgba(12, 28, 26, 0.015);
+
+  /* Bundled original variable sources; no exported cuts. */
+  --font-family-primary: "Studio Feixen Sans VF", "Noto Sans Sinhala", system-ui, sans-serif;
+  --font-family-code: "Geist Mono", "Noto Sans Sinhala", ui-monospace, monospace;
+
+  --font-weight-normal: 400;
+  --font-weight-medium: 550;
+  --font-weight-semibold: 550;
+  --font-weight-bold: 600;
+  --font-weight-mono: 420;
+  --font-weight-mono-strong: 520;
+
+  /* Fluid Responsive Typography Scale */
+  --font-size-title: clamp(1.19rem, 1.6vw + 0.77rem, 1.49rem);
+  --font-size-front: clamp(1.09rem, 1.35vw + 0.72rem, 1.29rem);
+  --font-size-back: clamp(0.99rem, 1.15vw + 0.67rem, 1.15rem);
+  --font-size-body: clamp(0.95rem, 0.95vw + 0.65rem, 1.07rem);
+  --font-size-extra: clamp(0.93rem, 0.95vw + 0.63rem, 1.05rem);
+  --font-size-small: clamp(0.78rem, 0.55vw + 0.51rem, 0.86rem);
+  --font-size-meta: clamp(0.70rem, 0.35vw + 0.47rem, 0.76rem);
+  --font-size-code: 0.87em;
+
+  --space-paragraph: 0.8rem;
+  --space-block: 1rem;
+  --space-list-item: 0.4rem;
+  --motion-fast: 140ms;
+  --motion-reveal: 240ms;
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Geometry & Layout (Calibrated for MacBook Displays) */
+  --card-max-width: clamp(980px, 72vw, 1140px);
+  --card-min-height: clamp(460px, 55vh, 580px);
+  --border-radius: 14px;
+  --border-radius-sm: 8px;
+  --border-radius-pill: 9999px;
+
+  --padding-card-x: clamp(1.8rem, 3.5vw, 2.6rem);
+  --padding-card-y: clamp(1.8rem, 3vw, 2.4rem);
+  --padding-meta-x: clamp(1.8rem, 3.5vw, 2.6rem);
+  --padding-meta-y: 0.95rem;
+  --padding-inset-x: 1.25rem;
+  --padding-inset-y: 0.9rem;
+  --border-accent-width: 3px;
+
+  /* Canvas */
+  --bg-color: #f1f5f2;
+  --bg-gradient: radial-gradient(ellipse 55% 75% at 12% 10%, rgba(109, 166, 132, 0.13), transparent 75%), radial-gradient(ellipse 60% 70% at 95% 90%, rgba(114, 168, 151, 0.09), transparent 75%), linear-gradient(145deg, #f4f7f4, #f0f5f2);
+
+  /* Card surface */
+  --card-bg: #fdfefb;
+  --card-bg-oklch: #fdfefb;
+
+  /* Text hierarchy */
+  --text-primary: #19261f;
+  --text-primary-oklch: #19261f;
+
+  --text-secondary: #37473d;
+  --text-secondary-oklch: #37473d;
+
+  --text-muted: #516257;
+  --text-muted-oklch: #516257;
+
+  --text-faint: #5c685e;
+  --text-faint-oklch: #5c685e;
+
+  /* Subtle Hairline Borders */
+  --border-subtle: #d6dfd3;
+  --border-subtle-oklch: #d6dfd3;
+
+  --border-focus: #a5baa7;
+  --border-focus-oklch: #a5baa7;
+
+  /* Recall accent */
+  --accent-primary: #18734d;
+  --accent-primary-oklch: #18734d;
+
+  --accent-primary-light: #e8f2e7;
+  --accent-primary-light-oklch: #e8f2e7;
+
+  --accent-primary-hover: #105637;
+  --accent-primary-hover-oklch: #105637;
+
+  /* Semantic Highlights */
+  --bold-text: #1b6345;
+  --italic-text: #84501b;
+  --underline-color: #568164;
+
+  --cloze-text: #18734d;
+  --cloze-bg: #e8f2e7;
+  --cloze-border: #648d6e;
+
+  --link-color: #176961;
+  --link-hover: #104e49;
+
+  --mark-bg: #f6e9ca;
+  --mark-text: #654715;
+
+  /* Surfaces & Shadows */
+  --meta-bg-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.20), rgba(187, 217, 194, 0.12));
+  --divider-gradient: linear-gradient(90deg, transparent, rgba(24, 115, 77, 0.32) 35%, rgba(24, 115, 77, 0.32) 65%, transparent);
+
+  --shadow-card: 0 16px 36px -8px rgba(26, 64, 44, 0.13), 0 2px 6px rgba(26, 64, 44, 0.035), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  --shadow-sm: 0 1px 2px 0 rgba(12, 28, 26, 0.04);
+  --shadow-md: 0 4px 12px -2px rgba(12, 28, 26, 0.08);
+  /* Callout colors share the palette saturation and adapt to night mode. */
+  --callout-note: #006f87;
+  --callout-note-bg: rgba(0, 111, 135, 0.08);
+  --callout-tip: #017742;
+  --callout-tip-bg: rgba(30, 117, 70, 0.08);
+  --callout-warning: #865900;
+  --callout-warning-bg: rgba(134, 89, 0, 0.08);
+  --callout-danger: #9d423e;
+  --callout-danger-bg: rgba(152, 71, 66, 0.08);
+  --glass-fill: rgba(253, 254, 251, 0.81);
+  --glass-edge: rgba(255, 255, 255, 0.86);
+  --glass-sheen: linear-gradient(125deg, rgba(255, 255, 255, 0.31), transparent 42%);
+}
+
+.field--front p,
+.field--front li {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* 3. DARK PALETTE */
+
+:root.nightMode,
+:root.night_mode,
+body.nightMode,
+body.night_mode,
+.card.nightMode,
+.card.night_mode,
+.night_mode .card,
+.nightMode .card {
+  color-scheme: dark;
+  --on-accent: #090f0e;
+  --extra-bg: linear-gradient(135deg, rgba(129, 217, 180, 0.04), rgba(129, 217, 180, 0.08));
+  --code-bg: #101817;
+  --inline-code-bg: rgba(129, 217, 180, 0.12);
+  --syntax-keyword: #7ed6b1;
+  --syntax-string: #79cfcf;
+  --syntax-comment: #8b9d9a;
+  --syntax-function: #edb986;
+  --syntax-number: #dfc080;
+  --syntax-operator: var(--syntax-keyword);
+  --syntax-boolean: var(--syntax-number);
+  --table-head-bg: rgba(235, 240, 238, 0.04);
+  --table-stripe-bg: rgba(235, 240, 238, 0.02);
+
+  /* Canvas */
+  --bg-color: #0b1511;
+  --bg-gradient: radial-gradient(ellipse 58% 85% at 10% 8%, rgba(43, 100, 72, 0.22), transparent 75%), radial-gradient(ellipse 60% 70% at 96% 92%, rgba(37, 88, 77, 0.16), transparent 75%), linear-gradient(145deg, #0d1813, #0a130f);
+
+  /* Card surface */
+  --card-bg: #16201f;
+  --card-bg-oklch: #16201f;
+
+  /* Text hierarchy */
+  --text-primary: #ebf0ee;
+  --text-primary-oklch: #ebf0ee;
+
+  --text-secondary: #b5c9c6;
+  --text-secondary-oklch: #b5c9c6;
+
+  --text-muted: #9eafac;
+  --text-muted-oklch: #9eafac;
+
+  --text-faint: #a4b2ad;
+  --text-faint-oklch: #a4b2ad;
+
+  --border-subtle: #273634;
+  --border-subtle-oklch: #273634;
+
+  --border-focus: #465b51;
+  --border-focus-oklch: #465b51;
+
+  /* Recall accent */
+  --accent-primary: #76dbb2;
+  --accent-primary-oklch: #76dbb2;
+
+  --accent-primary-light: rgba(129, 217, 180, 0.14);
+  --accent-primary-light-oklch: rgba(129, 217, 180, 0.14);
+
+  --accent-primary-hover: #a6e9cb;
+  --accent-primary-hover-oklch: #a6e9cb;
+
+  /* Dark Semantic Highlights */
+  --bold-text: #89e7c0;
+  --italic-text: #f2b67e;
+  --underline-color: #70b698;
+
+  --cloze-text: #76dbb2;
+  --cloze-bg: rgba(129, 217, 180, 0.1);
+  --cloze-border: #6bb796;
+
+  --link-color: #60d6d6;
+  --link-hover: #8aefee;
+
+  --mark-bg: #382c11;
+  --mark-text: #ebcd92;
+
+  /* Dark Surfaces & Shadows */
+  --meta-bg-gradient: linear-gradient(135deg, rgba(187, 238, 206, 0.035), rgba(109, 192, 153, 0.025));
+  --divider-gradient: linear-gradient(90deg, transparent, rgba(118, 219, 178, 0.45) 35%, rgba(118, 219, 178, 0.45) 65%, transparent);
+
+  --shadow-card: 0 18px 42px -10px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(190, 244, 215, 0.055);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.45);
+  /* Callout colors share the palette saturation and adapt to night mode. */
+  --callout-note: #4abedf;
+  --callout-note-bg: rgba(91, 189, 218, 0.08);
+  --callout-tip: #70c38e;
+  --callout-tip-bg: rgba(120, 193, 146, 0.08);
+  --callout-warning: #d7a457;
+  --callout-warning-bg: rgba(211, 165, 99, 0.08);
+  --callout-danger: #ed918a;
+  --callout-danger-bg: rgba(231, 149, 142, 0.08);
+  --glass-fill: rgba(16, 26, 22, 0.83);
+  --glass-edge: rgba(172, 223, 194, 0.24);
+  --glass-sheen: linear-gradient(125deg, rgba(190, 244, 215, 0.06), transparent 42%);
+}
+
+.field--back p,
+.field--back li {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --on-accent: #090f0e;
+    --extra-bg: linear-gradient(135deg, rgba(129, 217, 180, 0.04), rgba(129, 217, 180, 0.08));
+    --code-bg: #101817;
+    --inline-code-bg: rgba(129, 217, 180, 0.12);
+    --syntax-keyword: #7ed6b1;
+    --syntax-string: #79cfcf;
+    --syntax-comment: #8b9d9a;
+    --syntax-function: #edb986;
+    --syntax-number: #dfc080;
+    --syntax-operator: var(--syntax-keyword);
+    --syntax-boolean: var(--syntax-number);
+    --table-head-bg: rgba(235, 240, 238, 0.04);
+    --table-stripe-bg: rgba(235, 240, 238, 0.02);
+
+    /* Canvas */
+    --bg-color: #0b1511;
+    --bg-gradient: radial-gradient(ellipse 58% 85% at 10% 8%, rgba(43, 100, 72, 0.22), transparent 75%), radial-gradient(ellipse 60% 70% at 96% 92%, rgba(37, 88, 77, 0.16), transparent 75%), linear-gradient(145deg, #0d1813, #0a130f);
+
+    /* Card surface */
+    --card-bg: #16201f;
+    --card-bg-oklch: #16201f;
+
+    /* Text hierarchy */
+    --text-primary: #ebf0ee;
+    --text-primary-oklch: #ebf0ee;
+
+    --text-secondary: #b5c9c6;
+    --text-secondary-oklch: #b5c9c6;
+
+    --text-muted: #9eafac;
+    --text-muted-oklch: #9eafac;
+
+    --text-faint: #a4b2ad;
+    --text-faint-oklch: #a4b2ad;
+
+    --border-subtle: #273634;
+    --border-subtle-oklch: #273634;
+
+    --border-focus: #465b51;
+    --border-focus-oklch: #465b51;
+
+    /* Recall accent */
+    --accent-primary: #76dbb2;
+    --accent-primary-oklch: #76dbb2;
+
+    --accent-primary-light: rgba(129, 217, 180, 0.14);
+    --accent-primary-light-oklch: rgba(129, 217, 180, 0.14);
+
+    --accent-primary-hover: #a6e9cb;
+    --accent-primary-hover-oklch: #a6e9cb;
+
+    /* Dark Semantic Highlights */
+    --bold-text: #89e7c0;
+    --italic-text: #f2b67e;
+    --underline-color: #70b698;
+
+    --cloze-text: #76dbb2;
+    --cloze-bg: rgba(129, 217, 180, 0.1);
+    --cloze-border: #6bb796;
+
+    --link-color: #60d6d6;
+    --link-hover: #8aefee;
+
+    --mark-bg: #382c11;
+    --mark-text: #ebcd92;
+
+    /* Dark Surfaces & Shadows */
+    --meta-bg-gradient: linear-gradient(135deg, rgba(187, 238, 206, 0.035), rgba(109, 192, 153, 0.025));
+    --divider-gradient: linear-gradient(90deg, transparent, rgba(118, 219, 178, 0.45) 35%, rgba(118, 219, 178, 0.45) 65%, transparent);
+
+    --shadow-card: 0 18px 42px -10px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(190, 244, 215, 0.055);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 14px -2px rgba(0, 0, 0, 0.45);
+    /* Callout colors share the palette saturation and adapt to night mode. */
+    --callout-note: #4abedf;
+    --callout-note-bg: rgba(91, 189, 218, 0.08);
+    --callout-tip: #70c38e;
+    --callout-tip-bg: rgba(120, 193, 146, 0.08);
+    --callout-warning: #d7a457;
+    --callout-warning-bg: rgba(211, 165, 99, 0.08);
+    --callout-danger: #ed918a;
+    --callout-danger-bg: rgba(231, 149, 142, 0.08);
+    --glass-fill: rgba(16, 26, 22, 0.83);
+    --glass-edge: rgba(172, 223, 194, 0.24);
+    --glass-sheen: linear-gradient(125deg, rgba(190, 244, 215, 0.06), transparent 42%);
+  }
+}
+
+.field--extra p,
+.field--extra li {
+  font-size: inherit;
+}
+
+/* ==========================================================================
+   4. CARD ARCHITECTURE & SCROLL MECHANICS
+   ========================================================================== */
+
+html, body {
+  min-height: 100%;
+  background-color: var(--bg-color);
+  background-image: none;
+  font-family: var(--font-family-primary);
+  color: var(--text-primary);
+  line-height: 1.54;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.card {
+  /* Override Anki's reviewer margins; paint the canvas only once. */
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background-color: var(--bg-color);
+  background-image: var(--bg-gradient);
+  background-attachment: scroll;
+  background-repeat: no-repeat;
+  background-size: cover;
+  color: var(--text-primary);
+  font-family: var(--font-family-primary);
+  font-weight: var(--font-weight-normal);
+  text-align: left;
+  padding: 2rem 1.25rem;
+  padding-top: max(2rem, env(safe-area-inset-top));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+
+/* Keep Anki's content wrapper inside the viewport, even with long tags/code. */
+.card #qa {
+  width: 100%;
+  min-width: 0;
+}
+
+.flashcard {
+  width: var(--card-max-width);
+  max-width: 100%;
+  min-height: var(--card-min-height);
+  background-color: var(--card-bg);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  margin: auto;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+/* One stationary glass layer. Unsupported clients retain the opaque card above. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .flashcard {
+    background-color: var(--glass-fill);
+    background-image: var(--glass-sheen);
+    border-color: var(--glass-edge);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+
+  @media (max-width: 768px) {
+    .flashcard {
+      -webkit-backdrop-filter: blur(7px);
+      backdrop-filter: blur(7px);
+    }
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .flashcard {
+    background-color: var(--card-bg);
+    background-image: none;
+    border-color: var(--border-subtle);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Top luminescent edge beam */
+.flashcard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent 5%, var(--accent-primary) 50%, transparent 95%);
+  opacity: 0.85;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   5. HEADER: CLEAN BREADCRUMB & TAG PILLS
+   ========================================================================== */
+
+.meta-info {
+  background: var(--meta-bg-gradient);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.65rem 0.85rem;
+  padding: var(--padding-meta-y) var(--padding-meta-x);
+  min-height: 46px;
+  box-sizing: border-box;
+}
+
+.deck {
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  text-transform: uppercase;
+}
+
+.deck-sep {
+  color: var(--text-faint);
+  font-weight: var(--font-weight-normal);
+  font-size: 1.1em;
+  user-select: none;
+}
+
+.deck-part {
+  display: inline-block;
+}
+
+.tags {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.tags ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tags li, .tag {
+  background-color: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+  font-weight: var(--font-weight-medium);
+  padding: 3px 10px;
+  border-radius: var(--border-radius-pill);
+  border: 1px solid var(--border-subtle);
+  max-width: 100%;
+  margin: 0;
+  cursor: default;
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, border-color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out);
+  box-shadow: var(--shadow-sm);
+  line-height: 1.4;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tags li:hover, .tag:hover {
+    background-color: var(--accent-primary-light);
+    color: var(--text-primary);
+    border-color: var(--border-focus);
+    transform: translateY(-1px);
+  }
+}
+
+/* ==========================================================================
+   6. CARD BODY & CONTENT FIELDS
+   ========================================================================== */
+
+.main,
+.question,
+.answer,
+.field {
+  min-width: 0;
+}
+
+.field {
+  font-family: var(--font-family-primary);
+  font-weight: var(--font-weight-normal);
+}
+
+.main {
+  padding: var(--padding-card-y) var(--padding-card-x);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 1.35rem;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  min-height: auto;
+}
+
+.answer {
+  display: flex;
+  flex-direction: column;
+  min-height: auto;
+}
+
+.divider {
+  height: 1.5px;
+  width: 96%;
+  margin: 0.25rem auto;
+  position: relative;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 9999px;
+}
+
+.field--front {
+  font-size: var(--font-size-front);
+  font-weight: var(--font-weight-normal);
+  line-height: 1.75;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.field--back {
+  font-size: var(--font-size-back);
+  line-height: 1.75;
+  color: var(--text-primary);
+  letter-spacing: -0.005em;
+}
+
+.field--extra {
+  background: var(--extra-bg);
+  border: 1px solid var(--border-subtle);
+  border-left: var(--border-accent-width) solid var(--accent-primary);
+  border-radius: var(--border-radius-sm);
+  padding: var(--padding-inset-y) var(--padding-inset-x);
+  font-size: var(--font-size-extra);
+  color: var(--text-secondary);
+  margin-top: 1.25rem;
+  line-height: 1.54;
+}
+
+/* ==========================================================================
+   7. ACTIVE RECALL CLOZE DELETIONS
+   ========================================================================== */
+
+.cloze {
+  color: var(--cloze-text);
+  background-color: var(--cloze-bg);
+  border-bottom: 2px solid var(--cloze-border);
+  padding: 1px 7px 3px;
+  border-radius: 5px;
+  font-weight: var(--font-weight-semibold);
+  /* Inline-block + vertical margin forces the line box to expand so stacked pills never overlap. */
+  display: inline-block;
+  line-height: 1.35;
+  margin: 3px 1px;
+  vertical-align: baseline;
+  /* Inline fragments wrap with the sentence, including long answers. */
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* ==========================================================================
+   8. TYPOGRAPHY & INLINE ELEMENTS
+   ========================================================================== */
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--text-primary);
+  font-weight: var(--font-weight-bold);
+  line-height: 1.3;
+  margin-bottom: 0.5rem;
+  letter-spacing: -0.015em;
+}
+
+h1 { font-size: var(--font-size-title); }
+h2 { font-size: calc(var(--font-size-title) * 0.9); }
+h3 { font-size: calc(var(--font-size-title) * 0.82); }
+h4 { font-size: 1.08em; }
+h5 { font-size: 1.00em; }
+h6 { font-size: 0.88em; text-transform: uppercase; letter-spacing: -0.015em; }
+
+p {
+  margin-bottom: var(--space-paragraph);
+  color: inherit;
+  line-height: 1.45;
+}
+
+p:last-child {
+  margin-bottom: 0;
+}
+
+strong, b {
+  color: var(--bold-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+em, i {
+  color: var(--italic-text);
+  font-style: italic;
+}
+
+/* Bold + italic keeps the same weight as bold non-italic. */
+em strong, strong em, i b, b i, em b, b em, i strong, strong i {
+  font-weight: var(--font-weight-semibold);
+}
+
+u {
+  text-decoration: none;
+  border-bottom: 1.5px solid var(--underline-color);
+  padding-bottom: 1px;
+}
+
+mark, .highlight {
+  background-color: var(--mark-bg);
+  color: var(--mark-text);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-weight: var(--font-weight-medium);
+}
+
+a {
+  color: var(--link-color);
+  text-decoration: none;
+  font-weight: var(--font-weight-medium);
+  border-bottom: 1px dashed var(--link-color);
+  transition: color var(--motion-fast) ease, border-color var(--motion-fast) ease;
+}
+
+a:hover, a:focus-visible {
+  color: var(--link-hover);
+  border-bottom-style: solid;
+}
+
+a:focus-visible,
+.replay-button:focus-visible,
+.mjx-chtml:focus-visible,
+.katex:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+}
+
+kbd {
+  display: inline-block;
+  padding: 2px 6px;
+  font-family: var(--font-family-code);
+  font-weight: var(--font-weight-mono, 420);
+  font-size: 0.87em;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  vertical-align: baseline;
+  color: var(--text-primary);
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  border-bottom: 2px solid var(--border-focus);
+  border-radius: 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+sub,
+sup {
+  font-size: 75%;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+
+sup {
+  top: -0.5em;
+}
+
+sub {
+  bottom: -0.25em;
+}
+
+/* ==========================================================================
+   9. LISTS, BLOCKQUOTES & ADMONITIONS
+   ========================================================================== */
+
+/* Native markers preserve start, reversed, value and mixed nested lists. */
+.main ul,
+.main ol {
+  margin: var(--space-block) 0;
+  padding-left: 1.35em;
+}
+
+.main ol {
+  padding-left: 1.7em;
+}
+
+.main li {
+  margin-bottom: var(--space-list-item);
+  padding-left: 0.15em;
+  line-height: 1.54;
+  color: inherit;
+}
+
+.main li::marker {
+  color: var(--accent-primary);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.main li > ul,
+.main li > ol {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.main li:last-child {
+  margin-bottom: 0;
+}
+
+blockquote,
+.callout-note, .callout-tip, .callout-warning, .callout-danger {
+  margin: var(--space-block) 0;
+  padding: var(--padding-inset-y) var(--padding-inset-x);
+  border-left: var(--border-accent-width) solid var(--accent-primary);
+  background: var(--accent-primary-light);
+  border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
+  position: relative;
+}
+
+blockquote p {
+  margin-bottom: var(--space-paragraph);
+  color: var(--text-secondary);
+  font-size: var(--font-size-small);
+}
+
+/* Add room above headings and around editor-generated paragraph blocks. */
+.field h1, .field h2, .field h3,
+.field h4, .field h5, .field h6 {
+  margin-top: 1.25rem;
+}
+
+/* A heading stays closer to its content than to the preceding section. */
+.field :is(h1, h2, h3, h4, h5, h6) + :is(p, ul, ol, blockquote, pre, table) {
+  margin-top: 0.6rem;
+}
+
+.field > div + div,
+.field > div + p,
+.field > p + div,
+.field li > div + div,
+.field blockquote > div + div {
+  margin-top: var(--space-paragraph);
+}
+
+.field > :is(.callout-note, .callout-tip, .callout-warning, .callout-danger) {
+  margin-top: var(--space-block);
+}
+
+/* Trim only block margins; inline media and math retain their own geometry. */
+.field > :is(p, div, ul, ol, blockquote, pre, table, h1, h2, h3, h4, h5, h6):first-child,
+.field li > :is(p, div, ul, ol):first-child,
+:is(blockquote, .callout-note, .callout-tip, .callout-warning, .callout-danger) > :first-child {
+  margin-top: 0;
+}
+
+.field > :is(p, div, ul, ol, blockquote, pre, table):last-child,
+.field li > :is(p, div, ul, ol):last-child,
+:is(blockquote, .callout-note, .callout-tip, .callout-warning, .callout-danger) > :last-child {
+  margin-bottom: 0;
+}
+
+/* Callout Admonition Variants */
+blockquote[data-type="note"], .callout-note {
+  border-left-color: var(--callout-note);
+  background: var(--callout-note-bg);
+}
+
+blockquote[data-type="tip"], .callout-tip {
+  border-left-color: var(--callout-tip);
+  background: var(--callout-tip-bg);
+}
+
+blockquote[data-type="warning"], .callout-warning {
+  border-left-color: var(--callout-warning);
+  background: var(--callout-warning-bg);
+}
+
+blockquote[data-type="danger"], .callout-danger {
+  border-left-color: var(--callout-danger);
+  background: var(--callout-danger-bg);
+}
+
+/* ==========================================================================
+   10. CODE & SYNTAX HIGHLIGHTING
+   ========================================================================== */
+
+code {
+  font-family: var(--font-family-code);
+  font-weight: var(--font-weight-mono, 420);
+  font-size: var(--font-size-code);
+  letter-spacing: -0.01em;
+  background-color: var(--inline-code-bg);
+  color: var(--accent-primary);
+  padding: 0.09em 0.35em;
+  border-radius: 5px;
+  border: 1px solid var(--border-subtle);
+}
+
+/* Code nested inside strong or cloze keeps mono emphasis */
+strong code,
+b code,
+.cloze code {
+  font-weight: var(--font-weight-mono-strong, 520);
+}
+
+pre {
+  max-width: 100%;
+  overflow-wrap: normal;
+  word-wrap: normal;
+  white-space: pre;
+  margin: var(--space-block) 0;
+  border-radius: var(--border-radius-sm);
+  background-color: var(--code-bg);
+  border: 1px solid var(--border-subtle);
+  position: relative;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+pre code {
+  display: block;
+  font-family: var(--font-family-code);
+  font-weight: var(--font-weight-mono, 420);
+  background-color: transparent;
+  color: var(--text-primary);
+  padding: 1rem 1.25rem;
+  margin: 0;
+  border: none;
+  font-size: 1em;
+  line-height: 1.48;
+  letter-spacing: -0.01em;
+  box-shadow: none;
+}
+
+/* Syntax colors follow every supported light/dark theme entry point. */
+code .keyword  { color: var(--syntax-keyword); font-weight: var(--font-weight-mono-strong); }
+code .string   { color: var(--syntax-string); }
+code .comment  { color: var(--syntax-comment); font-style: italic; }
+code .function { color: var(--syntax-function); }
+code .number   { color: var(--syntax-number); }
+code .operator { color: var(--syntax-operator); }
+code .boolean  { color: var(--syntax-boolean); font-weight: var(--font-weight-mono-strong); }
+
+/* ==========================================================================
+   11. TABLES
+   ========================================================================== */
+
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: var(--space-block) 0;
+  background: var(--card-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
+  font-size: var(--font-size-small);
+}
+
+/* Neutralize pasted presentational attributes (border/cellpadding/cellspacing) so the grid stays single-pixel. */
+table[border], table[cellpadding], table[cellspacing] {
+  border-spacing: 0;
+  border-collapse: separate;
+}
+
+thead {
+  background: var(--table-head-bg);
+}
+
+th {
+  padding: 0.7rem 0.9rem;
+  vertical-align: top;
+  text-align: left;
+  line-height: 1.5;
+  font-weight: var(--font-weight-semibold);
+  border-bottom: 1px solid var(--border-focus);
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.82em;
+}
+
+th:first-child {
+  border-left: none;
+}
+
+th:empty {
+  background: transparent;
+}
+
+td {
+  padding: 0.7rem 0.9rem;
+  vertical-align: top;
+  line-height: 1.55;
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+}
+
+td:first-child {
+  border-left: none;
+}
+
+tbody tr:nth-child(even) {
+  background-color: var(--table-stripe-bg);
+}
+
+tbody tr:last-child td,
+tr:last-child td,
+tr:last-child th {
+  border-bottom: none;
+}
+
+/* ==========================================================================
+   12. MATHJAX & LATEX
+   ========================================================================== */
+
+.MathJax, .mjx-chtml, .katex, .katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  vertical-align: middle;
+  scrollbar-width: thin;
+}
+
+mjx-container[display="true"] {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.2em;
+}
+
+/* ==========================================================================
+   13. IMAGES & AUDIO CONTROLS
+   ========================================================================== */
+
+img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--border-radius-sm);
+  display: block;
+  margin: 0.85rem auto;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--motion-fast) ease;
+  cursor: auto;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  img:hover {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+/* Anki renders legacy LaTeX as inline images. */
+img.latex {
+  display: inline;
+  vertical-align: middle;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+audio, video {
+  max-width: 100%;
+}
+
+.replay-button {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4px;
+  padding: 8px;
+  width: 40px;
+  height: 40px;
+  background: var(--card-bg);
+  color: var(--accent-primary);
+  border: 2px solid var(--accent-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) ease, color var(--motion-fast) ease, transform var(--motion-fast) var(--ease-out);
+  touch-action: manipulation;
+  box-shadow: var(--shadow-sm);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .replay-button:hover {
+    background-color: var(--accent-primary);
+    color: var(--on-accent);
+    transform: translateY(-1px);
+  }
+}
+
+.replay-button:active {
+  transform: scale(0.97);
+}
+
+.replay-button svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.replay-button svg path {
+  fill: currentColor;
+}
+
+/* ==========================================================================
+   14. UTILITIES & RESPONSIVENESS
+   ========================================================================== */
+
+.text-center { text-align: center; }
+.text-left   { text-align: left; }
+.text-right  { text-align: right; }
+
+@media (max-width: 768px) {
+  :root, .card {
+    --font-family-primary: "Studio Feixen Sans VF", "Noto Sans Sinhala Mobile", system-ui, sans-serif;
+    --font-family-code: "Geist Mono", "Noto Sans Sinhala Mobile", ui-monospace, monospace;
+    /* Mobile optical correction: +30 points for each Sans and Mono role. */
+    --font-weight-normal: 430;
+    --font-weight-medium: 580;
+    --font-weight-semibold: 580;
+    --font-weight-bold: 630;
+    --font-weight-mono: 450;
+    --font-weight-mono-strong: 550;
+    --font-size-title: 1.04rem;
+    --font-size-front: 0.98rem;
+    --font-size-back: 0.90rem;
+    --font-size-body: 0.88rem;
+    --font-size-extra: 0.86rem;
+    --font-size-small: 0.73rem;
+    --font-size-meta: 0.63rem;
+    --font-size-code: 0.87em;
+    --card-min-height: auto;
+    --padding-inset-x: 1rem;
+    --padding-inset-y: 0.85rem;
+  }
+
+  .card {
+    min-height: 100vh;
+    min-height: 100svh;
+    justify-content: flex-start;
+    padding: 1rem 0.65rem;
+    padding-top: max(1rem, env(safe-area-inset-top));
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(0.65rem, env(safe-area-inset-left));
+    padding-right: max(0.65rem, env(safe-area-inset-right));
+  }
+
+  .flashcard {
+    width: 100%;
+    max-width: 100%;
+    border-radius: 12px;
+    min-height: auto;
+    margin: 0 auto;
+  }
+
+  .main {
+    padding: 1.25rem 1.1rem;
+    gap: 1.2rem;
+    font-size: var(--font-size-body);
+  }
+
+  .meta-info {
+    padding: 0.7rem 1.1rem;
+    min-height: 42px;
+  }
+
+  .field--front {
+    font-size: var(--font-size-front);
+    font-weight: var(--font-weight-normal);
+    line-height: 1.7;
+  }
+
+  .field--back {
+    font-size: var(--font-size-back);
+    line-height: 1.7;
+  }
+
+  .field--extra {
+    font-size: var(--font-size-extra);
+    line-height: 1.54;
+  }
+
+  .deck {
+    font-size: 0.59rem;
+    letter-spacing: 0.02em;
+  }
+
+  .tags li, .tag {
+    font-size: var(--font-size-meta);
+    padding: 2px 7px;
+  }
+
+  pre code {
+    padding: 0.75rem 0.85rem;
+    font-size: 0.75em;
+    line-height: 1.48;
+  }
+
+  table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ==========================================================================
+   15. AMBIENT ACCENTS & ANSWER REVEAL
+   Opacity-only animation keeps the glow subtle without animated filters.
+   ========================================================================== */
+
+.flashcard::before {
+  animation: beamBreathe 4.5s ease-in-out infinite;
+}
+
+.divider::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--divider-gradient);
+  animation: dividerBreathe 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.divider,
+.answer.back {
+  animation: answerFadeIn var(--motion-reveal) var(--ease-out) backwards;
+}
+
+@keyframes answerFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes beamBreathe {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 0.95; }
+}
+
+@keyframes dividerBreathe {
+  0%, 100% { opacity: 0.50; }
+  50%      { opacity: 0.95; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flashcard,
+  .flashcard *,
+  .flashcard::before,
+  .flashcard *::before,
+  .flashcard *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+
+  .tags li:hover, .tag:hover,
+  .replay-button:hover, .replay-button:active {
+    transform: none;
+  }
+}
+
+
+/* Bundled Geist Mono variable face at 87% size with approved tracking. */
+code, kbd, samp, pre {
+  font-family: var(--font-family-code) !important;
+  font-weight: var(--font-weight-mono) !important;
+  font-size: 0.87em !important;
+  letter-spacing: -0.01em !important;
+  font-synthesis: none;
+}
+pre code { font-size: 1em !important; }
+h1 code, h2 code, h3 code, h4 code, h5 code, h6 code {
+  font-weight: var(--font-weight-mono-strong) !important;
+}
+strong code, b code, .cloze code, code strong, code b, pre strong, pre b {
+  font-weight: var(--font-weight-mono-strong) !important;
+}
+code .keyword, code .boolean { font-weight: var(--font-weight-mono-strong) !important; }
