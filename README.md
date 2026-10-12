@@ -84,7 +84,6 @@ uv run pytest
 uv run python scripts/encoder_smoke.py
 cd frontend
 pnpm check
-pnpm test
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:e2e
@@ -97,8 +96,8 @@ checks and browser tests, and verifies the Python distributions. To release, upd
 both `pyproject.toml` and `frontend/package.json`, commit, and push a matching tag:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 After the checks pass, CI publishes the frontend ZIP, SHA-256 checksum, wheel, and

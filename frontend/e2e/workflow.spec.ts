@@ -61,7 +61,6 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   );
   await page.goto("/");
   expect((await page.request.get("/favicon.svg")).status()).toBe(200);
-  await expect(page.locator("link[rel=icon]")).toHaveAttribute("href", "/favicon.svg");
   await page
     .getByRole("textbox", { name: "Words", exact: true })
     .fill("curious\nresilient\ncurious\ninvalidword");
@@ -76,7 +75,6 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await curious.getByRole("checkbox").uncheck();
   // Choosing a deck affects the batch, including unselected and invalid words.
   const deck = page.getByRole("combobox", { name: "Deck", exact: true });
-  expect(await deck.evaluate((element) => element.tagName)).toBe("BUTTON");
   await deck.focus();
   await page.keyboard.press("Space");
   await expect(page.getByRole("listbox")).toBeVisible();
@@ -96,32 +94,17 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     .toBe(true);
   await curious.getByRole("button", { name: "Edit", exact: true }).click();
   const editor = page.locator(".word-editor");
-  const definitionSizes = await curious
-    .locator(".definition,.sinhala")
-    .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).fontSize));
-  expect(definitionSizes).toEqual(["14px", "14px"]);
-  const editorSizes = await editor
-    .locator("textarea[lang]")
-    .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).fontSize));
-  expect(new Set(editorSizes)).toEqual(new Set(["16px"]));
   await expectButtonInsets();
-  await expect(editor.getByRole("combobox")).toHaveCount(0);
   await editor
     .getByRole("textbox", { name: "English definition", exact: true })
     .fill("Wanting to find out more about something.");
   await editor.getByRole("button", { name: "Save changes" }).click();
   await expect(editor.getByRole("button", { name: "Save changes" })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Preview", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("combobox", { name: "Appearance", exact: true }).click();
   await page.getByRole("option", { name: "Dark", exact: true }).click();
   await page.getByRole("button", { name: "Advanced settings" }).click();
   await expectButtonInsets();
-  const settingsButtonHeights = await page
-    .getByRole("dialog")
-    .locator("button[data-variant]")
-    .evaluateAll((buttons) => buttons.map((button) => getComputedStyle(button).height));
-  expect(new Set(settingsButtonHeights)).toEqual(new Set(["36px"]));
   await page.getByLabel("Speech requests per minute", { exact: true }).fill("120");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");

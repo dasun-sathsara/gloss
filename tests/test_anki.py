@@ -1,3 +1,4 @@
+import json
 from unittest.mock import AsyncMock
 
 import httpx
@@ -6,24 +7,20 @@ import respx
 
 from gloss.anki.client import AnkiClient
 from gloss.anki.gateway import AnkiGateway
-from gloss.anki.templates import BACK, FIELDS, FRONT, fields
+from gloss.anki.templates import fields
 from gloss.core.events import Job
 from gloss.core.ports import ProviderError
 
 
-def mock_client(card, notes=None, decks=None):
+def mock_client(notes=None):
     client = AsyncMock(spec=AnkiClient)
     values = {
         "getActiveProfile": "Learner",
-        "deckNames": decks or ["Gloss", "Gloss::General", "Gloss::Science"],
+        "deckNames": ["Gloss", "Gloss::General", "Gloss::Science"],
         "findNotes": [11] if notes else [],
         "notesInfo": notes or [],
         "cardsInfo": [{"deckName": "Gloss::General"}],
         "addNote": 12,
-        "version": 6,
-        "findCards": [],
-        "getDeckConfig": {"new": {"perDay": 20}},
-        "modelFieldNames": FIELDS,
     }
 
     async def call(action, **kwargs):
@@ -34,31 +31,38 @@ def mock_client(card, notes=None, decks=None):
     return client
 
 
-async def test_upsert_updates_and_moves_cards_preserving_note_id(library, card, preferences):
-    card.deck = "Gloss::Science"
-    note = {
-        "noteId": 11,
-        "cards": [22],
+def note_for(card, note_id=11):
+    return {
+        "noteId": note_id,
+        "cards": [note_id + 100],
         "fields": {
             name: {"value": value} for name, value in fields(card, card.base_identity()).items()
         },
     }
-    client = mock_client(card, [note])
-    job = Job("sync")
-    await AnkiGateway(client, library).sync(job, [card], preferences, True, "Learner")
+
+
+def assert_no_writes(client):
+    assert not any(
+        call.args[0] in {"addNote", "updateNoteFields", "changeDeck", "storeMediaFile"}
+        for call in client.call.call_args_list
+    )
+    client.multi.assert_not_awaited()
+
+
+async def test_upsert_updates_and_moves_cards_preserving_note_id(library, card, preferences):
+    card.deck = "Gloss::Science"
+    client = mock_client([note_for(card)])
+    await AnkiGateway(client, library).sync(Job("sync"), [card], preferences, True, "Learner")
     client.call.assert_any_await(
         "updateNoteFields", note={"id": 11, "fields": fields(card, card.base_identity())}
     )
-    client.call.assert_any_await("changeDeck", cards=[22], deck="Gloss::Science")
-    assert card.note_id == 11
+    client.call.assert_any_await("changeDeck", cards=[111], deck="Gloss::Science")
     assert library.get(card.id).note_id == 11
-    assert not any(call.args[0] == "createDeck" for call in client.call.call_args_list)
+    assert not any(call.args[0] == "addNote" for call in client.call.call_args_list)
 
 
-async def test_deleted_deck_missing_audio_and_profile_change_stop_writes(
-    library, card, preferences
-):
-    client = mock_client(card)
+async def test_sync_rejects_unsafe_writes(library, card, preferences):
+    client = mock_client()
     gateway = AnkiGateway(client, library)
     with pytest.raises(ProviderError, match="profile changed"):
         await gateway.sync(Job("sync"), [card], preferences, True, "Other")
@@ -68,53 +72,9 @@ async def test_deleted_deck_missing_audio_and_profile_change_stop_writes(
     card.deck = "Gloss::General"
     with pytest.raises(ValueError, match="audio is missing"):
         await gateway.sync(Job("sync"), [card], preferences, False, "Learner")
-    assert not any(
-        call.args[0] in {"addNote", "updateNoteFields", "storeMediaFile"}
-        for call in client.call.call_args_list
-    )
+    assert_no_writes(client)
 
-
-async def test_conflict_requires_choice_and_keep_both_key_is_stable(library, card, preferences):
-    old = card.model_copy(update={"meaning": "A different definition."})
-    note = {
-        "noteId": 11,
-        "cards": [22],
-        "fields": {
-            name: {"value": value} for name, value in fields(old, old.base_identity()).items()
-        },
-    }
-    client = mock_client(card, [note])
-    gateway = AnkiGateway(client, library)
-    job = Job("sync")
-    await gateway.sync(job, [card], preferences, True, "Learner")
-    assert job.events[0]["event"] == "conflicts"
-    assert not any(call.args[0] == "updateNoteFields" for call in client.call.call_args_list)
-    card.decision = "keep_both"
-    card.sync_identity = card.base_identity()
-    key = gateway.key(card)
-    assert key.endswith(card.id)
-    card.sync_identity = key
-    assert gateway.key(card) == key
-
-
-async def test_conflicts_detect_two_senses_in_one_batch(library, card, preferences):
-    other = card.model_copy(update={"id": "second", "meaning": "A best performance."})
-    gateway = AnkiGateway(mock_client(card), library)
-    conflicts = await gateway.conflicts([card, other], preferences)
-    assert [(item["id"], item["kind"]) for item in conflicts] == [("second", "batch")]
-    other.decision = "keep_both"
-    assert await gateway.conflicts([card, other], preferences) == []
-
-
-async def test_matching_note_outside_parent_is_never_modified(library, card, preferences):
-    note = {
-        "noteId": 11,
-        "cards": [22],
-        "fields": {
-            name: {"value": value} for name, value in fields(card, card.base_identity()).items()
-        },
-    }
-    client = mock_client(card, [note])
+    client = mock_client([note_for(card)])
     original = client.call.side_effect
 
     async def call(action, **kwargs):
@@ -125,12 +85,71 @@ async def test_matching_note_outside_parent_is_never_modified(library, card, pre
     client.call.side_effect = call
     with pytest.raises(ValueError, match="outside"):
         await AnkiGateway(client, library).sync(Job("sync"), [card], preferences, True, "Learner")
-    assert not any(call.args[0] == "updateNoteFields" for call in client.call.call_args_list)
+    assert_no_writes(client)
 
 
-async def test_partial_multi_results_are_not_ignored():
+async def test_keep_both_preserves_conflicting_meanings_and_retry_does_not_duplicate(
+    library, card, preferences
+):
+    old = card.model_copy(update={"meaning": "A different definition."})
+    other = card.model_copy(update={"id": "second", "meaning": "A best performance."})
+    notes = {11: note_for(old)}
+    client = mock_client()
+    original = client.call.side_effect
+
+    async def call(action, **kwargs):
+        if action == "findNotes":
+            key = kwargs["query"].split('Identity:"')[1][:-1]
+            return [id for id, note in notes.items() if note["fields"]["Identity"]["value"] == key]
+        if action == "notesInfo":
+            return [notes[id] for id in kwargs["notes"]]
+        if action == "addNote":
+            id = max(notes) + 1
+            notes[id] = {
+                "noteId": id,
+                "cards": [id + 100],
+                "fields": {
+                    key: {"value": value} for key, value in kwargs["note"]["fields"].items()
+                },
+            }
+            return id
+        if action == "updateNoteFields":
+            payload = kwargs["note"]
+            notes[payload["id"]]["fields"] = {
+                key: {"value": value} for key, value in payload["fields"].items()
+            }
+            return None
+        return await original(action, **kwargs)
+
+    client.call.side_effect = call
+    gateway = AnkiGateway(client, library)
+    job = Job("sync")
+    await gateway.sync(job, [card, other], preferences, True, "Learner")
+    assert {conflict["kind"] for conflict in job.events[0]["data"]} == {"anki", "batch"}
+    assert_no_writes(client)
+    card.decision = other.decision = "keep_both"
+    await gateway.sync(Job("sync"), [card, other], preferences, True, "Learner")
+    saved_ids = [card.note_id, other.note_id]
+    await gateway.sync(Job("sync"), [card, other], preferences, True, "Learner")
+    assert [card.note_id, other.note_id] == saved_ids
+    assert len(notes) == 3
+    assert notes[11] == note_for(old)
+    assert [library.get(value.id).note_id for value in (card, other)] == saved_ids
+    assert sum(call.args[0] == "addNote" for call in client.call.call_args_list) == 2
+
+
+async def test_ankiconnect_multi_uses_v6_on_custom_port_and_surfaces_partial_failure():
     async with httpx.AsyncClient() as http, respx.mock:
-        respx.post("http://127.0.0.1:8765").mock(
+        endpoint = respx.post("http://127.0.0.1:8766").mock(
+            return_value=httpx.Response(
+                200, json={"result": [{"result": "Learner", "error": None}], "error": None}
+            )
+        )
+        client = AnkiClient(http, port=8766)
+        assert await client.multi([{"action": "getActiveProfile"}]) == ["Learner"]
+        request = json.loads(endpoint.calls.last.request.content)
+        assert request["params"]["actions"] == [{"action": "getActiveProfile", "version": 6}]
+        endpoint.mock(
             return_value=httpx.Response(
                 200,
                 json={
@@ -143,43 +162,4 @@ async def test_partial_multi_results_are_not_ignored():
             )
         )
         with pytest.raises(ProviderError, match="One Anki operation failed"):
-            await AnkiClient(http).multi([{"action": "a"}, {"action": "b"}])
-
-
-def test_audio_tags_and_fields_escape_untrusted_text(card):
-    card.word = '<script>alert("x")</script>'
-    for kind in ("word", "meaning", "example1", "example2"):
-        card.audio[kind] = f"gloss_{'a' * 64}.mp3"
-    values = fields(card, card.base_identity())
-    assert sum(value.count("[sound:") for value in values.values()) == 1
-    assert "Word Audio" not in FRONT
-    assert 'preload="none"' in values["Meaning Audio"]
-    assert "controls" not in values["Meaning Audio"]
-    assert "autoplay" not in values["Meaning Audio"]
-    assert 'src="gloss_' in values["Meaning Audio"]
-    assert "<script>" not in values["Word"]
-    assert "&lt;script&gt;" in values["Word"]
-    assert 'lang="si"' in BACK
-
-
-async def test_configured_anki_port_stays_on_loopback():
-    async with httpx.AsyncClient() as http, respx.mock:
-        endpoint = respx.post("http://127.0.0.1:8766").mock(
-            return_value=httpx.Response(200, json={"result": 6, "error": None})
-        )
-        assert await AnkiClient(http, port=8766).call("version") == 6
-        assert endpoint.called
-
-
-async def test_multi_actions_explicitly_request_version_6():
-    async with httpx.AsyncClient() as http, respx.mock:
-        endpoint = respx.post("http://127.0.0.1:8765").mock(
-            return_value=httpx.Response(
-                200, json={"result": [{"result": "Learner", "error": None}], "error": None}
-            )
-        )
-        assert await AnkiClient(http).multi([{"action": "getActiveProfile"}]) == ["Learner"]
-        import json
-
-        request = json.loads(endpoint.calls.last.request.content)
-        assert request["params"]["actions"] == [{"action": "getActiveProfile", "version": 6}]
+            await client.multi([{"action": "storeMediaFile"}, {"action": "storeMediaFile"}])

@@ -58,6 +58,14 @@ async def test_local_security_and_full_offline_workflow(tmp_path):
         assert len(changed.json()["audio"]) == 3
         assert (await http.get("/media/sa.json")).status_code == 404
 
+    # A fresh app must restore the edited card and its remaining clips from disk.
+    restarted = create_app(Configuration(tmp_path), demo=True)
+    restored = restarted.state.library.get(saved.id)
+    assert restored.meaning == "An edited meaning."
+    assert len(restored.audio) == 3
+    assert len(restarted.state.library.all()) == 2
+    restarted.state.library.close()
+
 
 async def test_sync_requires_pull_ticket_and_same_profile(tmp_path, card):
     app = create_app(Configuration(tmp_path), demo=True)

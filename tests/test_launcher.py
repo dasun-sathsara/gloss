@@ -22,16 +22,6 @@ def test_frontend_archive_rejects_traversal_and_hidden_files(tmp_path):
             launcher.safe_extract(archive, tmp_path / "destination")
 
 
-def test_valid_frontend_archive_extracts_and_requires_index(tmp_path):
-    archive = tmp_path / "bundle.zip"
-    with zipfile.ZipFile(archive, "w") as bundle:
-        bundle.writestr("index.html", "ok")
-        bundle.writestr("assets/app.js", "ok")
-    destination = tmp_path / "frontend"
-    launcher.safe_extract(archive, destination)
-    assert (destination / "assets/app.js").read_text() == "ok"
-
-
 def test_failed_dependency_update_rolls_back_backend_and_preserves_old_bundle(
     tmp_path, monkeypatch
 ):

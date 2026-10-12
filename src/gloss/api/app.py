@@ -3,6 +3,7 @@ import contextlib
 import re
 import secrets
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -88,7 +89,9 @@ def create_app(
         await http.aclose()
         library.close()
 
-    app = FastAPI(title="Gloss", lifespan=lifespan, docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="Gloss", version=version("gloss"), lifespan=lifespan, docs_url=None, redoc_url=None
+    )
     app.state.library = library
     app.state.jobs = jobs
     app.state.gateway = gateway
@@ -166,7 +169,7 @@ def create_app(
 
     @app.get("/api/health")
     async def health():
-        return {"app": "gloss", "version": "0.1.0"}
+        return {"app": "gloss", "version": app.version}
 
     @app.get("/api/bootstrap")
     async def bootstrap():
