@@ -367,8 +367,13 @@ button[data-slot="collapsible-trigger"][data-state="open"] > svg {
   font-size: 0.875rem;
 }
 .synced-label {
-  display: block;
-  font-size: var(--type-meta);
+  display: inline-flex;
+  margin-top: 0.5rem;
+  padding: 0.0625rem 0.3125rem;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  vertical-align: top;
+  border-color: var(--border);
   color: var(--muted-foreground);
 }
 .actions-column {

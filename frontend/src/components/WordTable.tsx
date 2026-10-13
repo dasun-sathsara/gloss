@@ -1,5 +1,6 @@
 import { Fragment, useId, useState } from "react";
 import { type Card, type Clip, clips } from "../lib";
+import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
@@ -116,7 +117,11 @@ export function WordTable({
                 <span className="sr-only">
                   {clips.filter((clip) => card.audio[clip]).length} of 4 audio clips
                 </span>
-                {card.note_id && <span className="synced-label">In Anki</span>}
+                {card.note_id && (
+                  <Badge variant="secondary" className="synced-label">
+                    In Anki
+                  </Badge>
+                )}
               </TableCell>
               <TableCell className="actions-column">
                 <div className="row-actions">
