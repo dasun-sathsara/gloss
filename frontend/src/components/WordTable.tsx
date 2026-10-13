@@ -6,6 +6,16 @@ import { Checkbox } from "./ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { WordEditor } from "./WordEditor";
 
+function AnkiStatus({ noteId }: { noteId: number | null }) {
+  return noteId ? (
+    <Badge variant="secondary" className="synced-label">
+      In Anki
+    </Badge>
+  ) : (
+    <span className="draft-label">Draft</span>
+  );
+}
+
 export function WordTable({
   cards,
   selected,
@@ -55,6 +65,7 @@ export function WordTable({
           <TableHead className="word-column">Word</TableHead>
           <TableHead>Meaning</TableHead>
           <TableHead className="audio-column">Audio</TableHead>
+          <TableHead className="status-column">Status</TableHead>
           <TableHead className="actions-column">
             <span className="sr-only">Actions</span>
           </TableHead>
@@ -117,14 +128,15 @@ export function WordTable({
                 <span className="sr-only">
                   {clips.filter((clip) => card.audio[clip]).length} of 4 audio clips
                 </span>
-                {card.note_id && (
-                  <Badge variant="secondary" className="synced-label">
-                    In Anki
-                  </Badge>
-                )}
+              </TableCell>
+              <TableCell className="status-column">
+                <AnkiStatus noteId={card.note_id} />
               </TableCell>
               <TableCell className="actions-column">
                 <div className="row-actions">
+                  <span className="mobile-note-status">
+                    <AnkiStatus noteId={card.note_id} />
+                  </span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -149,7 +161,7 @@ export function WordTable({
             </TableRow>
             {editing === card.id && (
               <TableRow id={`editor-${card.id}`} className="editor-row">
-                <TableCell colSpan={5}>
+                <TableCell colSpan={6}>
                   <WordEditor
                     card={card}
                     dirty={dirty.has(card.id)}

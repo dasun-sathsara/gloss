@@ -366,9 +366,19 @@ button[data-slot="collapsible-trigger"][data-state="open"] > svg {
   width: 80px;
   font-size: 0.875rem;
 }
+.status-column {
+  width: 96px;
+}
+.mobile-note-status {
+  display: none;
+}
+.draft-label {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  color: var(--muted-foreground);
+}
 .synced-label {
   display: inline-flex;
-  margin-top: 0.5rem;
   padding: 0.0625rem 0.3125rem;
   font-size: 0.75rem;
   line-height: 1rem;
@@ -617,11 +627,12 @@ textarea {
 .word-row .check-column {
   vertical-align: middle;
 }
-.word-row .audio-column {
-  padding-top: 1rem;
+.word-row .audio-column,
+.word-row .status-column {
+  padding-top: 0.75rem;
 }
 .word-row .actions-column {
-  padding-top: 0.5rem;
+  padding-top: 0.375rem;
 }
 .word-pos {
   margin-top: 0.125rem;
@@ -913,9 +924,17 @@ textarea {
   .word-row .actions-column {
     grid-column: 2 / 4;
   }
+  .word-table .status-column {
+    display: none;
+  }
   .row-actions {
     flex-direction: row;
-    justify-content: flex-start;
+    justify-content: flex-end;
+  }
+  .mobile-note-status {
+    display: inline-flex;
+    align-self: center;
+    margin-inline-end: auto;
   }
   .word-table .editor-row,
   .word-table .editor-row td {

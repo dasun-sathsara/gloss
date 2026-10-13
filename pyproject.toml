@@ -1,6 +1,6 @@
 [project]
 name = "gloss"
-version = "0.1.2"
+version = "0.1.3"
 description = "English vocabulary flashcards with Sinhala meanings and audio for Anki."
 readme = "README.md"
 license = "MIT"

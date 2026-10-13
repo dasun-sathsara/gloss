@@ -1,4 +1,4 @@
-The "In Anki" status now uses a compact shadcn badge with consistent padding and spacing below the audio meter. It follows the app's light and dark themes.
+Anki status has its own column beside audio readiness. On narrow screens it sits with the row actions. The "In Anki" badge follows the app's light and dark themes.
 
 Gloss creates English vocabulary cards with Sinhala meanings, examples, and pronunciation audio for Anki.
 
