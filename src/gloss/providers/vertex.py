@@ -10,13 +10,13 @@ from typing import TypeVar
 import httpx
 import imageio_ffmpeg
 from google import genai
-from google.auth.exceptions import DefaultCredentialsError, RefreshError
+from google.auth.exceptions import DefaultCredentialsError, RefreshError, TransportError
 from google.genai import errors, types
 from json_repair import repair_json
 from pydantic import ValidationError
 
 from gloss.config import Configuration, Preferences
-from gloss.core.models import Entry, Generated, GeneratedBatch
+from gloss.core.models import Entry, Generated, GeneratedBatchPayload
 from gloss.core.ports import ProviderError
 
 T = TypeVar("T")
@@ -30,6 +30,13 @@ async def retry_call[T](operation: Callable[[], Awaitable[T]], attempts: int = 3
             raise ProviderError(
                 "Google credentials are missing or expired. Check setup.", fatal=True
             ) from exc
+        except TransportError as exc:
+            if attempt == attempts - 1:
+                raise ProviderError(
+                    "Google credentials could not be refreshed. Check your connection and retry.",
+                    retryable=True,
+                ) from exc
+            await asyncio.sleep(2**attempt)
         except httpx.HTTPError as exc:
             if attempt == attempts - 1:
                 raise ProviderError(
@@ -105,7 +112,7 @@ class VertexLanguageModel:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema=GeneratedBatch,
+                    response_schema=GeneratedBatchPayload,
                     max_output_tokens=self.max_output_tokens,
                     thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
                 ),
@@ -117,15 +124,27 @@ class VertexLanguageModel:
             parsed = json.loads(text)
         except json.JSONDecodeError:
             parsed = repair_json(text, return_objects=True)
-        raw_items = parsed.get("items", []) if isinstance(parsed, dict) else []
-        wanted = {entry.index for entry in entries}
-        valid: dict[int, Generated] = {}
-        ambiguous: set[int] = set()
-        for raw in raw_items:
+        raw = parsed.get("items") if isinstance(parsed, dict) else None
+        raw_items = raw if isinstance(raw, list) else []
+        parsed_items: list[Generated] = []
+        for entry in raw_items:
             try:
-                item = Generated.model_validate(raw)
+                parsed_items.append(Generated.model_validate(entry))
             except ValidationError:
                 continue
+        wanted = {entry.index for entry in entries}
+        if (
+            parsed_items
+            and len(parsed_items) == len(entries)
+            and not any(item.index in wanted for item in parsed_items)
+        ):
+            # The model renumbered the batch from zero instead of preserving the
+            # global indices. The order is still reliable, so adopt it positionally.
+            for entry, item in zip(entries, parsed_items, strict=True):
+                item.index = entry.index
+        valid: dict[int, Generated] = {}
+        ambiguous: set[int] = set()
+        for item in parsed_items:
             if item.index in valid:
                 ambiguous.add(item.index)
             elif item.index in wanted:
@@ -143,9 +162,15 @@ def encode_mp3(data: bytes) -> bytes:
     except (wave.Error, EOFError) as exc:
         raise ProviderError("The speech model did not return a complete WAV file.") from exc
     try:
+        ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
+    except RuntimeError as exc:
+        raise ProviderError(
+            "The MP3 encoder is unavailable. Reinstall dependencies and retry."
+        ) from exc
+    try:
         result = subprocess.run(
             [
-                imageio_ffmpeg.get_ffmpeg_exe(),
+                ffmpeg,
                 "-hide_banner",
                 "-loglevel",
                 "error",

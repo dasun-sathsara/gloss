@@ -30,7 +30,10 @@ async def test_generation_salvages_batch_and_retries_only_missing(library, prefe
     )
     assert calls == [[0, 1], [1]]
     assert len(library.all()) == 2
-    assert [event["event"] for event in job.events] == ["card", "card"]
+    cards = [event for event in job.events if event["event"] == "card"]
+    assert len(cards) == 2
+    progress = [event for event in job.events if event["event"] == "progress"]
+    assert progress[-1]["data"] == {"stage": "text", "completed": 2, "total": 2}
 
 
 async def test_cached_audio_deduplicates_calls_and_retries_metered(library, card, preferences):
@@ -77,8 +80,13 @@ async def test_audio_failure_is_isolated_and_ceiling_is_hard(library, card, pref
     fresh.meaning += " changed"
     fresh.example1 += " changed"
     fresh.example2 += " changed"
-    with pytest.raises(ProviderError, match="ceiling"):
-        await service.audio(Job("audio"), [fresh], AlwaysFail(), preferences)
+    job = Job("audio")
+    await service.audio(job, [fresh], AlwaysFail(), preferences)
+    # The ceiling stops the run without discarding completed work and without
+    # aborting every remaining clip.
+    assert "word" in fresh.audio_errors
+    assert any("ceiling" in message.lower() for message in fresh.audio_errors.values())
+    assert any(event["event"] == "progress" for event in job.events)
 
 
 async def test_cancel_preserves_completed_cards_and_delivers_terminal_event(library, card):

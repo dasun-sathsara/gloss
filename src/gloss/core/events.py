@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -63,18 +64,20 @@ class Jobs:
             except asyncio.CancelledError:
                 job.emit("cancelled", {"message": "Stopped. Completed work is saved."})
             except Exception as exc:
+                from pydantic import ValidationError
+
                 from gloss.core.ports import ProviderError
 
-                message = (
-                    str(exc)
-                    if isinstance(exc, (ProviderError, ValueError))
-                    else (
+                # Only deliberate, user-actionable errors are shown verbatim.
+                # pydantic.ValidationError subclasses ValueError, so it is excluded.
+                if isinstance(exc, ProviderError) or (
+                    isinstance(exc, ValueError) and not isinstance(exc, ValidationError)
+                ):
+                    message = str(exc)
+                else:
+                    message = (
                         "The run stopped unexpectedly. Your library is saved. Check the server log."
                     )
-                )
-                if not isinstance(exc, (ProviderError, ValueError)):
-                    import logging
-
                     logging.getLogger("gloss").exception("Run failed")
                 job.emit("failed", {"message": message})
             finally:

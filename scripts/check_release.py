@@ -16,14 +16,22 @@ ROOT = Path(__file__).resolve().parents[1]
 def check_members(names: list[str]) -> None:
     for name in names:
         parts = Path(name).parts
-        if any(
-            part
-            in {".env", ".venv", "node_modules", "__pycache__", "_StudioFeixenSansVariable.ttf"}
-            or (part.startswith(".env.") and part != ".env.example")
-            or part.endswith((".pem", ".sqlite3", ".mp3", ".wav"))
-            for part in parts
-        ):
-            raise ValueError(f"Private or generated file in distribution: {name}")
+        for part in parts:
+            lower = part.lower()
+            credentials = lower.endswith(".json") and (
+                lower.endswith("sa.json")
+                or "credential" in lower
+                or lower.startswith("service-account")
+                or lower.endswith("-key.json")
+            )
+            if (
+                part
+                in {".env", ".venv", "node_modules", "__pycache__", "_StudioFeixenSansVariable.ttf"}
+                or (part.startswith(".env.") and part != ".env.example")
+                or part.endswith((".pem", ".sqlite3", ".mp3", ".wav"))
+                or credentials
+            ):
+                raise ValueError(f"Private or generated file in distribution: {name}")
 
 
 def main() -> None:

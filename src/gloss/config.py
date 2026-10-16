@@ -1,9 +1,11 @@
+import contextlib
 import json
+import logging
 import os
 import sys
 from pathlib import Path
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 VOICES = (
@@ -127,17 +129,33 @@ class Configuration:
                 self.environment.google_application_credentials
             )
         path = self.directory / "settings.json"
-        self.preferences = Preferences(
-            **(
-                json.loads(path.read_text())
-                if path.exists()
-                else {
-                    "voice": self.environment.voice,
-                    "deck_parent": self.environment.deck_parent,
-                    "deck_default": self.environment.deck_default,
-                }
-            )
-        )
+        defaults = {
+            "voice": self.environment.voice,
+            "deck_parent": self.environment.deck_parent,
+            "deck_default": self.environment.deck_default,
+        }
+        data: dict = defaults
+        if path.exists():
+            try:
+                loaded = json.loads(path.read_text())
+                if not isinstance(loaded, dict):
+                    raise ValueError("settings.json must contain an object")
+                data = loaded
+            except (OSError, ValueError) as exc:
+                self.quarantine_settings(path, exc)
+                data = defaults
+        try:
+            self.preferences = Preferences(**data)
+        except ValidationError as exc:
+            self.quarantine_settings(path, exc)
+            self.preferences = Preferences(**defaults)
+
+    @staticmethod
+    def quarantine_settings(path: Path, exc: Exception) -> None:
+        # A corrupt or out-of-date settings file must not stop the app from starting.
+        logging.getLogger("gloss").warning("Ignoring unreadable %s: %s", path.name, exc)
+        with contextlib.suppress(OSError):
+            path.replace(path.with_name(path.name + ".bak"))
 
     def save(self, preferences: Preferences) -> None:
         path = self.directory / "settings.json"

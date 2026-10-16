@@ -61,6 +61,30 @@ class GeneratedBatch(BaseModel):
     items: list[Generated]
 
 
+class GeneratedPayload(BaseModel):
+    """Wire schema for the model response.
+
+    Unlike :class:`Generated`, every content field is required, so the JSON schema
+    handed to the provider matches what the validator demands. With defaults, the
+    schema only required ``index``/``valid``/``word``, letting the provider legally
+    omit a definition and forcing a repair round trip.
+    """
+
+    index: int = Field(ge=0)
+    valid: bool
+    word: str = Field(max_length=120)
+    pos: str = Field(max_length=60)
+    meaning: str = Field(max_length=800)
+    sinhala: str = Field(max_length=800)
+    example1: str = Field(max_length=800)
+    example2: str = Field(max_length=800)
+    reason: str = Field(default="", max_length=500)
+
+
+class GeneratedBatchPayload(BaseModel):
+    items: list[GeneratedPayload]
+
+
 class Card(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     source_word: str = ""
@@ -74,6 +98,7 @@ class Card(BaseModel):
     valid: bool = False
     reason: str = ""
     deck: str = ""
+    order: int = 0
     audio: dict[ClipKind, str] = Field(default_factory=dict)
     audio_errors: dict[ClipKind, str] = Field(default_factory=dict)
     decision: Decision = "ask"

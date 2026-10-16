@@ -15,6 +15,14 @@ def quote(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+AUDIO_FIELDS = {
+    "word": "Word Audio",
+    "meaning": "Meaning Audio",
+    "example1": "Example 1 Audio",
+    "example2": "Example 2 Audio",
+}
+
+
 class AnkiGateway:
     def __init__(self, client: AnkiClient, library: Library):
         self.client = client
@@ -24,7 +32,13 @@ class AnkiGateway:
         try:
             version = await self.client.call("version")
             if not isinstance(version, int) or version < 6:
-                return {"connected": False, "message": "Update AnkiConnect to API version 6."}
+                return {
+                    "connected": False,
+                    "ready": False,
+                    "decks": [],
+                    "models": [],
+                    "message": "Update AnkiConnect to API version 6.",
+                }
             profile, decks, models = await self.client.multi(
                 [
                     {"action": "getActiveProfile"},
@@ -76,7 +90,13 @@ class AnkiGateway:
                 "warnings": warnings,
             }
         except ProviderError as exc:
-            return {"connected": False, "message": str(exc), "decks": [], "ready": False}
+            return {
+                "connected": False,
+                "message": str(exc),
+                "decks": [],
+                "models": [],
+                "ready": False,
+            }
 
     async def setup(self, preferences: Preferences, move_parent_cards: bool = False) -> None:
         decks = await self.client.call("deckNames")
@@ -182,12 +202,20 @@ class AnkiGateway:
         return card.sync_identity or card.base_identity()
 
     async def conflicts(self, cards: list[Card], preferences: Preferences) -> list[dict[str, Any]]:
+        ready = [card for card in cards if card.decision != "skip" and card.ready()]
+        groups: dict[str, list[Card]] = {}
+        for card in ready:
+            groups.setdefault(self.key(card), []).append(card)
+        # Flag every card in a group that resolves to the same note with different
+        # content, not just the later ones. Otherwise the first card silently
+        # aliases the note that the second card writes.
+        batched = {
+            key: group
+            for key, group in groups.items()
+            if len({card.content_hash() for card in group}) > 1
+        }
         result: list[dict[str, Any]] = []
-        seen: dict[str, Card] = {}
-        for card in cards:
-            if card.decision == "skip" or not card.ready():
-                continue
-            key = self.key(card)
+        for card in ready:
             matches = await self.matches(card, preferences)
             if len(matches) > 1 or (matches and not self.same_content(card, matches[0])):
                 result.append(
@@ -209,18 +237,23 @@ class AnkiGateway:
                         ],
                     }
                 )
-            if key in seen and seen[key].content_hash() != card.content_hash():
+            group = batched.get(self.key(card))
+            if group:
+                others = [value for value in group if value.id != card.id]
                 result.append(
                     {
                         "id": card.id,
                         "word": card.word,
                         "kind": "batch",
                         "existing": [
-                            {"Word": seen[key].word, "English Meaning": seen[key].meaning}
+                            {
+                                "Word": html.unescape(value.word),
+                                "English Meaning": html.unescape(value.meaning),
+                            }
+                            for value in others
                         ],
                     }
                 )
-            seen[key] = card
         return result
 
     async def sync(
@@ -248,14 +281,22 @@ class AnkiGateway:
             if not allow_missing and any(kind not in card.audio for kind in CLIP_KINDS):
                 raise ValueError("Some audio is missing. Retry it or explicitly sync without it.")
         conflicts = await self.conflicts(cards, preferences)
-        unresolved = [
-            item
-            for item in conflicts
-            if next(card for card in cards if card.id == item["id"]).decision == "ask"
-        ]
+        by_id = {card.id: card for card in cards}
+        unresolved = [item for item in conflicts if by_id.get(item["id"], Card()).decision == "ask"]
         if unresolved:
             job.emit("conflicts", unresolved)
             return
+        keys: set[str] = set()
+        for card in cards:
+            if card.decision == "skip":
+                continue
+            key = self.key(card)
+            if key in keys:
+                raise ValueError(
+                    "Two selected words map to the same Anki note. "
+                    "Keep both meanings or remove one."
+                )
+            keys.add(key)
         for card in cards:
             if card.decision == "skip":
                 continue
@@ -291,6 +332,12 @@ class AnkiGateway:
             if actions:
                 await self.client.multi(actions)
             payload = fields(card, key)
+            if matches and allow_missing:
+                existing = matches[0]["fields"]
+                for kind, name in AUDIO_FIELDS.items():
+                    # Preserve audio that only Anki holds; an empty field would erase it.
+                    if kind not in card.audio and existing.get(name, {}).get("value"):
+                        payload.pop(name, None)
             if matches:
                 note_id = matches[0]["noteId"]
                 await self.client.call("updateNoteFields", note={"id": note_id, "fields": payload})

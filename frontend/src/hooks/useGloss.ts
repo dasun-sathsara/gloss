@@ -12,6 +12,7 @@ import {
   type Job,
   type Parsed,
   type Preferences,
+  type Progress,
 } from "../lib";
 
 const emptyAnki: AnkiStatus = { connected: false, ready: false, decks: [] };
@@ -33,6 +34,7 @@ export function useGloss() {
   const initialBatchIds = useRef(batchIds);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   const [job, setJob] = useState<Job | null>(null);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [pending, setPending] = useState(false);
   const [view, setView] = useState<"review" | "library">("review");
   const [search, setSearch] = useState("");
@@ -53,6 +55,8 @@ export function useGloss() {
   const source = useRef<EventSource | null>(null);
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
   const busy = pending || !!job;
 
   const updateCard = useCallback((card: Card) => {
@@ -181,6 +185,9 @@ export function useGloss() {
         if (card.valid) setSelected((old) => new Set([...old, card.id]));
       }
     });
+    eventSource.addEventListener("progress", (event) =>
+      setProgress(JSON.parse((event as MessageEvent).data)),
+    );
     eventSource.addEventListener("failed", (event) =>
       setError(JSON.parse((event as MessageEvent).data).message),
     );
@@ -197,6 +204,7 @@ export function useGloss() {
       ended = true;
       eventSource.close();
       setJob(null);
+      setProgress(null);
       if (job.kind === "audio") setNotice("Audio finished.");
       if (job.kind === "sync") refreshAnki().catch(() => {});
     });
@@ -208,10 +216,18 @@ export function useGloss() {
         if (!value.active_job || value.active_job.id !== job.id) {
           eventSource.close();
           setJob(null);
-          setCards(value.cards);
-          setError("The progress connection ended. Saved work has been reloaded.");
+          setProgress(null);
+          if (dirtyRef.current.size === 0) {
+            setCards(value.cards);
+            setError("The progress connection ended. Saved work has been reloaded.");
+          } else {
+            setError("The progress connection ended. Save your open edits, then reopen Gloss.");
+          }
         }
       } catch {
+        eventSource.close();
+        setJob(null);
+        setProgress(null);
         setError("Gloss disconnected. Reopen the launcher; saved work is in the library.");
       }
     };
@@ -263,10 +279,11 @@ export function useGloss() {
       old.map((card) => {
         if (card.id !== id) return card;
         const audio = { ...card.audio };
-        if (patch.word !== undefined) delete audio.word;
-        if (patch.meaning !== undefined) delete audio.meaning;
-        if (patch.example1 !== undefined) delete audio.example1;
-        if (patch.example2 !== undefined) delete audio.example2;
+        // Only invalidate a clip when its text actually changed.
+        if (patch.word !== undefined && patch.word !== card.word) delete audio.word;
+        if (patch.meaning !== undefined && patch.meaning !== card.meaning) delete audio.meaning;
+        if (patch.example1 !== undefined && patch.example1 !== card.example1) delete audio.example1;
+        if (patch.example2 !== undefined && patch.example2 !== card.example2) delete audio.example2;
         return { ...card, ...patch, audio };
       }),
     );
@@ -284,21 +301,26 @@ export function useGloss() {
       setSelected(new Set());
       setView("review");
       setJob(next);
+      setProgress(null);
       setConfirmCap(false);
       setNotice("");
     });
   };
   const selection = cards.filter((card) => selected.has(card.id));
   const readySelection = selection.filter((card) => isReady(card) && card.decision !== "skip");
-  const visibleCards = cards.filter(
-    (card) =>
-      (view === "library" || batchIds.has(card.id)) &&
-      `${card.word} ${card.meaning} ${card.sinhala}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  const visibleCards = cards
+    .filter(
+      (card) =>
+        (view === "library" || batchIds.has(card.id)) &&
+        `${card.word} ${card.meaning} ${card.sinhala}`.toLowerCase().includes(search.toLowerCase()),
+    )
+    // Deterministic order: input order in a batch, newest first in the library.
+    .sort((a, b) => (view === "library" ? b.order - a.order : a.order - b.order));
   const audio = () =>
     perform(async () => {
       await flush();
       setNotice("");
+      setProgress(null);
       setJob(await api<Job>("/audio", "POST", { ids: readySelection.map((card) => card.id) }));
     });
   const assignBatchDeck = async (target: string) => {
@@ -337,16 +359,19 @@ export function useGloss() {
 
   const remove = (ids: string[]) =>
     perform(async () => {
-      await Promise.all(ids.map((id) => api(`/cards/${id}`, "DELETE")));
-      const removed = new Set(ids);
+      const settled = await Promise.allSettled(ids.map((id) => api(`/cards/${id}`, "DELETE")));
+      const removed = new Set(ids.filter((_, index) => settled[index].status === "fulfilled"));
+      const failed = ids.filter((_, index) => settled[index].status === "rejected");
       setCards((old) => old.filter((card) => !removed.has(card.id)));
       setSelected((old) => new Set([...old].filter((id) => !removed.has(id))));
       setBatchIds((old) => new Set([...old].filter((id) => !removed.has(id))));
       setDirty((old) => new Set([...old].filter((id) => !removed.has(id))));
+      if (failed.length) throw new Error(`${failed.length} word(s) could not be removed.`);
     });
   const retry = (card: Card) =>
     perform(async () => {
       await flush();
+      setProgress(null);
       setJob(await api<Job>(`/cards/${card.id}/retry`, "POST", {}));
     });
   const listen = (card: Card, kind: Clip) =>
@@ -355,6 +380,7 @@ export function useGloss() {
       if (saved.audio[kind]) await new Audio(`/media/${saved.audio[kind]}`).play();
       else {
         setListenAfter({ id: card.id, kind });
+        setProgress(null);
         setJob(await api<Job>("/audio", "POST", { ids: [card.id], kind }));
       }
     });
@@ -393,6 +419,7 @@ export function useGloss() {
     dirty,
     job,
     setJob,
+    progress,
     pending,
     busy,
     view,

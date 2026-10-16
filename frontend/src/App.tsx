@@ -63,6 +63,13 @@ export default function App() {
       </header>
       <main className="workspace">
         {b.demo && <p className="demo-notice">Offline demo · Sample definitions and test tones</p>}
+        {b.library_truncated && (
+          <Alert>
+            <AlertDescription>
+              Showing the newest {b.cards.length} of {b.card_count} saved words.
+            </AlertDescription>
+          </Alert>
+        )}
         {!b.provider_ready && (
           <Alert>
             <AlertDescription>
@@ -228,6 +235,7 @@ export default function App() {
                     : g.job.kind === "audio"
                       ? "Preparing audio…"
                       : "Saving notes in Anki…"}
+                  {g.progress ? ` ${g.progress.completed}/${g.progress.total}` : ""}
                 </span>
                 {g.job.kind !== "sync" && (
                   <Button
@@ -309,6 +317,11 @@ export default function App() {
         />
       </Modal>
       <Modal title="Anki" open={g.setupOpen} onOpenChange={g.setSetupOpen}>
+        {g.error && (
+          <Alert variant="destructive" className="message">
+            <AlertDescription>{g.error}</AlertDescription>
+          </Alert>
+        )}
         {!g.anki.connected ? (
           <p>
             Open Anki with the{" "}
@@ -399,6 +412,11 @@ export default function App() {
           Wait for syncing to finish in profile {g.syncDialog?.profile}. Resolve any full upload or
           download prompt in Anki before continuing.
         </p>
+        {g.error && (
+          <Alert variant="destructive" className="message">
+            <AlertDescription>{g.error}</AlertDescription>
+          </Alert>
+        )}
         {g.missing && (
           <Field orientation="horizontal">
             <Checkbox
@@ -439,6 +457,11 @@ export default function App() {
           if (!open) g.setConflicts([]);
         }}
       >
+        {g.error && (
+          <Alert variant="destructive" className="message">
+            <AlertDescription>{g.error}</AlertDescription>
+          </Alert>
+        )}
         <div className="conflict-list">
           {g.conflicts.map((conflict) => {
             const card = g.cards.find((card) => card.id === conflict.id);

@@ -40,11 +40,16 @@ class Library:
             )
         return cards
 
-    def all(self) -> list[Card]:
+    def all(self, limit: int = 10_000) -> list[Card]:
         return [
             Card.model_validate_json(row[0])
-            for row in self.db.execute("SELECT data FROM cards ORDER BY rowid DESC LIMIT 1000")
+            for row in self.db.execute(
+                "SELECT data FROM cards ORDER BY rowid DESC LIMIT ?", (limit,)
+            )
         ]
+
+    def count(self) -> int:
+        return self.db.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
 
     def delete(self, card_id: str) -> None:
         with self.db:

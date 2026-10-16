@@ -16,6 +16,7 @@ export interface Card {
   valid: boolean;
   reason: string;
   deck: string;
+  order: number;
   audio: Partial<Record<Clip, string>>;
   audio_errors: Partial<Record<Clip, string>>;
   decision: Decision;
@@ -67,10 +68,17 @@ export interface Job {
   id: string;
   kind: "text" | "audio" | "sync";
 }
+export interface Progress {
+  stage: string;
+  completed: number;
+  total: number;
+}
 export interface Bootstrap {
   settings: Preferences;
   voices: string[];
   cards: Card[];
+  card_count: number;
+  library_truncated: boolean;
   active_job: Job | null;
   provider_ready: boolean;
   config_dir: string;
@@ -83,6 +91,17 @@ export interface Conflict {
   kind: "anki" | "batch";
   existing: Record<string, string>[];
 }
+function detailFrom(value: unknown): string {
+  if (value && typeof value === "object" && "detail" in value) {
+    const detail = (value as { detail: unknown }).detail;
+    if (typeof detail === "string" && detail) return detail;
+    if (Array.isArray(detail) && detail.length) {
+      const first = detail[0] as { msg?: unknown };
+      if (first && typeof first.msg === "string" && first.msg) return first.msg;
+    }
+  }
+  return "Check the fields and try again.";
+}
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
@@ -91,9 +110,7 @@ export async function api<T>(path: string, method = "GET", data?: unknown): Prom
   });
   if (!response.ok) {
     const value = await response.json().catch(() => ({}));
-    throw new Error(
-      typeof value.detail === "string" ? value.detail : "Check the fields and try again.",
-    );
+    throw new Error(detailFrom(value));
   }
   return response.json();
 }

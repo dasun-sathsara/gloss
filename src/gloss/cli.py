@@ -8,7 +8,7 @@ import uvicorn
 from filelock import FileLock, Timeout
 
 from gloss.api.app import create_app
-from gloss.config import Configuration
+from gloss.config import Configuration, config_dir
 
 
 def main() -> None:
@@ -18,12 +18,14 @@ def main() -> None:
     parser.add_argument("--demo", action="store_true", help="Use offline development fixtures.")
     parser.add_argument("--frontend", type=Path)
     args = parser.parse_args()
-    configuration = Configuration()
+    directory = config_dir()
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     logging.basicConfig(
-        filename=configuration.directory / "server.log",
+        filename=directory / "server.log",
         level=logging.WARNING,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    configuration = Configuration(directory)
     frontend = args.frontend or Path(os.environ.get("GLOSS_FRONTEND_DIR", "frontend/dist"))
     lock = FileLock(configuration.directory / "server.lock")
     try:

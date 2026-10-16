@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 import re
 import secrets
 from contextlib import asynccontextmanager
@@ -11,7 +12,7 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from gloss.anki.client import AnkiClient
@@ -34,7 +35,7 @@ class Paste(BaseModel):
 
 
 class Selection(BaseModel):
-    ids: list[str] = Field(min_length=1, max_length=100)
+    ids: list[str] = Field(min_length=1, max_length=1000)
     kind: ClipKind | None = None
 
 
@@ -100,15 +101,21 @@ def create_app(
 
     @app.middleware("http")
     async def local_only(request: Request, call_next):
+        security = {
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        }
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             origin = request.headers.get("origin")
             expected = f"{request.url.scheme}://{request.headers.get('host', '')}"
             if origin != expected:
                 return JSONResponse(
-                    {"detail": "Use Gloss from its own browser window."}, status_code=403
+                    {"detail": "Use Gloss from its own browser window."},
+                    status_code=403,
+                    headers=security,
                 )
         if any(part.startswith(".") for part in request.url.path.split("/") if part):
-            return JSONResponse({"detail": "Not found."}, status_code=404)
+            return JSONResponse({"detail": "Not found."}, status_code=404, headers=security)
         if request.method not in {"GET", "HEAD", "OPTIONS"}:
             async with mutation_lock:
                 response = await call_next(request)
@@ -128,6 +135,11 @@ def create_app(
     @app.exception_handler(ValueError)
     async def value_error(_: Request, exc: ValueError):
         return JSONResponse({"detail": str(exc)}, status_code=400)
+
+    @app.exception_handler(ValidationError)
+    async def validation_error(_: Request, exc: ValidationError):
+        logging.getLogger("gloss").exception("Request validation failed")
+        return JSONResponse({"detail": "The request was not valid."}, status_code=422)
 
     @app.exception_handler(KeyError)
     async def key_error(_: Request, exc: KeyError):
@@ -174,10 +186,14 @@ def create_app(
     @app.get("/api/bootstrap")
     async def bootstrap():
         active = jobs.active
+        cards = [valid_audio(card) for card in library.all()]
+        total = library.count()
         return {
             "settings": configuration.preferences,
             "voices": VOICES,
-            "cards": [valid_audio(card) for card in library.all()],
+            "cards": cards,
+            "card_count": total,
+            "library_truncated": total > len(cards),
             "active_job": {"id": active.id, "kind": active.kind} if active else None,
             "provider_ready": bool(configuration.environment.google_cloud_project) or demo,
             "config_dir": str(configuration.directory),
