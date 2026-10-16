@@ -1,4 +1,7 @@
+import contextlib
+import os
 import sqlite3
+import sys
 from pathlib import Path
 
 from gloss.core.models import Card
@@ -9,7 +12,11 @@ class Library:
         self.directory = directory
         self.media = directory / "media"
         self.media.mkdir(parents=True, exist_ok=True)
-        self.db = sqlite3.connect(directory / "library.sqlite3")
+        database = directory / "library.sqlite3"
+        self.db = sqlite3.connect(database)
+        if sys.platform != "win32":
+            with contextlib.suppress(OSError):
+                os.chmod(database, 0o600)
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, data TEXT NOT NULL)"

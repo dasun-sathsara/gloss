@@ -52,10 +52,24 @@ export default function App() {
           </TabsList>
         </Tabs>
         <div className="header-actions">
-          <Button variant="ghost" onClick={() => g.setSetupOpen(true)} disabled={g.busy}>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              g.setError("");
+              g.setSetupOpen(true);
+            }}
+            disabled={g.busy}
+          >
             Anki {g.anki.connected ? "connected" : "offline"}
           </Button>
-          <Button variant="ghost" disabled={g.busy} onClick={() => g.setSettingsOpen(true)}>
+          <Button
+            variant="ghost"
+            disabled={g.busy}
+            onClick={() => {
+              g.setError("");
+              g.setSettingsOpen(true);
+            }}
+          >
             <GearSixIcon aria-hidden="true" />
             Settings
           </Button>
@@ -66,7 +80,7 @@ export default function App() {
         {b.library_truncated && (
           <Alert>
             <AlertDescription>
-              Showing the newest {b.cards.length} of {b.card_count} saved words.
+              Showing the newest {g.cards.length} of {b.card_count} saved words.
             </AlertDescription>
           </Alert>
         )}

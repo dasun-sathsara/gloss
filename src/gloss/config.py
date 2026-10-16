@@ -123,6 +123,10 @@ class Configuration:
     def __init__(self, directory: Path | None = None):
         self.directory = directory or config_dir()
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if sys.platform != "win32":
+            # mkdir's mode is ignored for an existing directory.
+            with contextlib.suppress(OSError):
+                os.chmod(self.directory, 0o700)
         self.environment = Environment(_env_file=self.directory / ".env")
         if self.environment.google_application_credentials:
             os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (

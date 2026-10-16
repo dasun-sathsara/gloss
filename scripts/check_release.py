@@ -13,23 +13,31 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+SECRET_TOKENS = ("credential", "secret", "serviceaccount", "token", "password", "privatekey")
+
+
+def is_credential(name: str) -> bool:
+    lower = name.lower()
+    if not lower.endswith(".json"):
+        return False
+    stem = re.sub(r"[^a-z0-9]", "", lower[: -len(".json")])
+    return (
+        any(token in stem for token in SECRET_TOKENS)
+        or stem.endswith(("key", "sa"))
+        or stem in {"creds", "auth", "keyfile"}
+    )
+
+
 def check_members(names: list[str]) -> None:
     for name in names:
         parts = Path(name).parts
         for part in parts:
-            lower = part.lower()
-            credentials = lower.endswith(".json") and (
-                lower.endswith("sa.json")
-                or "credential" in lower
-                or lower.startswith("service-account")
-                or lower.endswith("-key.json")
-            )
             if (
                 part
                 in {".env", ".venv", "node_modules", "__pycache__", "_StudioFeixenSansVariable.ttf"}
                 or (part.startswith(".env.") and part != ".env.example")
                 or part.endswith((".pem", ".sqlite3", ".mp3", ".wav"))
-                or credentials
+                or is_credential(part)
             ):
                 raise ValueError(f"Private or generated file in distribution: {name}")
 

@@ -225,10 +225,9 @@ export function useGloss() {
           }
         }
       } catch {
-        eventSource.close();
-        setJob(null);
-        setProgress(null);
-        setError("Gloss disconnected. Reopen the launcher; saved work is in the library.");
+        // The server may be briefly unreachable while the run keeps going. Keep the
+        // job and its Cancel control so the user is not wedged; EventSource retries.
+        setError("Gloss lost its progress connection. It will keep trying; saved work is safe.");
       }
     };
     return () => {
@@ -314,8 +313,14 @@ export function useGloss() {
         (view === "library" || batchIds.has(card.id)) &&
         `${card.word} ${card.meaning} ${card.sinhala}`.toLowerCase().includes(search.toLowerCase()),
     )
-    // Deterministic order: input order in a batch, newest first in the library.
-    .sort((a, b) => (view === "library" ? b.order - a.order : a.order - b.order));
+    // Deterministic order: input order in a batch; newest batch first in the
+    // library, still in input order within each batch.
+    .sort((a, b) =>
+      view === "library"
+        ? Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
+          (a.order % 1000) - (b.order % 1000)
+        : a.order - b.order,
+    );
   const audio = () =>
     perform(async () => {
       await flush();

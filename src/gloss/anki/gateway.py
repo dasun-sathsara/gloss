@@ -206,14 +206,11 @@ class AnkiGateway:
         groups: dict[str, list[Card]] = {}
         for card in ready:
             groups.setdefault(self.key(card), []).append(card)
-        # Flag every card in a group that resolves to the same note with different
-        # content, not just the later ones. Otherwise the first card silently
-        # aliases the note that the second card writes.
-        batched = {
-            key: group
-            for key, group in groups.items()
-            if len({card.content_hash() for card in group}) > 1
-        }
+        # Flag every card that shares a note identity with another selected card,
+        # not just the later ones. Otherwise the first card silently aliases the
+        # note that the second card writes, and an identical duplicate leaves the
+        # user with no way to choose "keep both".
+        batched = {key: group for key, group in groups.items() if len(group) > 1}
         result: list[dict[str, Any]] = []
         for card in ready:
             matches = await self.matches(card, preferences)

@@ -186,7 +186,8 @@ def update(uv: str) -> Path | None:
 def healthy() -> bool:
     try:
         return get_json(URL + "/api/health").get("app") == "gloss"
-    except Exception:
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        logging.debug("Health probe failed: %s", exc)
         return False
 
 
@@ -204,11 +205,14 @@ def install_state() -> str | None:
     return None
 
 
-def restore_installation(uv: str, commit: str, state: str | None) -> None:
+def restore_installation(uv: str, commit: str, state: str | None) -> bool:
     """Best-effort rollback to the checkout and state from before a failed update."""
-    with contextlib.suppress(Exception):
+    try:
         run("git", "checkout", "--detach", commit)
         run(uv, "sync", "--frozen", "--no-dev")
+    except Exception:
+        logging.exception("Rollback to %s failed", commit)
+        return False
     state_path = CONFIG / "installed-release.json"
     with contextlib.suppress(OSError):
         if state is None:
@@ -216,29 +220,42 @@ def restore_installation(uv: str, commit: str, state: str | None) -> None:
                 state_path.unlink()
         else:
             state_path.write_text(state)
+    return True
 
 
 def start(uv: str, frontend: Path) -> bool:
-    run(uv, "sync", "--frozen", "--no-dev")
-    args = [uv, "run", "--no-sync", "gloss", "--no-browser", "--frontend", str(frontend)]
-    with (CONFIG / "startup.log").open("a") as log:
-        child = subprocess.Popen(
-            args,
-            cwd=ROOT,
-            stdout=log,
-            stderr=log,
-            **({"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}),
-        )
+    try:
+        run(uv, "sync", "--frozen", "--no-dev")
+        args = [uv, "run", "--no-sync", "gloss", "--no-browser", "--frontend", str(frontend)]
+        with (CONFIG / "startup.log").open("a") as log:
+            child = subprocess.Popen(
+                args,
+                cwd=ROOT,
+                stdout=log,
+                stderr=log,
+                **(
+                    {"creationflags": subprocess.CREATE_NO_WINDOW}
+                    if sys.platform == "win32"
+                    else {}
+                ),
+            )
+    except Exception:
+        logging.exception("Could not start Gloss")
+        return False
     for _ in range(60):
         if healthy():
-            webbrowser.open(URL)
+            with contextlib.suppress(Exception):
+                webbrowser.open(URL)
             return True
         if child.poll() is not None:
             return False
         time.sleep(0.5)
-    child.terminate()
     with contextlib.suppress(Exception):
+        child.terminate()
         child.wait(timeout=10)
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=10)
     return False
 
 
@@ -292,13 +309,14 @@ def main() -> None:
             frontend = update(uv)
         except Exception as exc:
             logging.warning("Update failed: %s. Keeping the installed version.", exc)
-            state = CONFIG / "installed-release.json"
-            if state.is_file():
-                installed = json.loads(state.read_text())
-                if installed.get("commit") == raw_head() and not run(
-                    "git", "status", "--porcelain"
-                ):
-                    frontend = Path(installed["frontend"])
+            with contextlib.suppress(Exception):
+                state = CONFIG / "installed-release.json"
+                if state.is_file():
+                    installed = json.loads(state.read_text())
+                    if installed.get("commit") == raw_head() and not run(
+                        "git", "status", "--porcelain"
+                    ):
+                        frontend = Path(installed["frontend"])
         frontend = frontend or ROOT / "frontend/dist"
         if not (frontend / "index.html").is_file():
             raise RuntimeError(
@@ -307,11 +325,16 @@ def main() -> None:
         if start(uv, frontend):
             return
         # The installed release did not come up. Roll back to the previous checkout
-        # and state, then try that instead of leaving a bad release pinned.
+        # and state (or the local build on a fresh checkout), then try that instead of
+        # leaving a bad release pinned.
         previous_frontend = None
         if previous_state:
             with contextlib.suppress(ValueError, KeyError, TypeError):
                 previous_frontend = Path(json.loads(previous_state)["frontend"])
+        if previous_frontend is None:
+            local = ROOT / "frontend/dist"
+            if (local / "index.html").is_file():
+                previous_frontend = local
         if (
             previous_commit
             and previous_commit != raw_head()
@@ -319,8 +342,9 @@ def main() -> None:
             and (previous_frontend / "index.html").is_file()
         ):
             logging.warning("New release did not start; restoring the previous checkout.")
-            restore_installation(uv, previous_commit, previous_state)
-            if start(uv, previous_frontend):
+            if restore_installation(uv, previous_commit, previous_state) and start(
+                uv, previous_frontend
+            ):
                 return
             raise RuntimeError(
                 "The update could not start and the previous version also failed. "

@@ -16,7 +16,7 @@ from json_repair import repair_json
 from pydantic import ValidationError
 
 from gloss.config import Configuration, Preferences
-from gloss.core.models import Entry, Generated, GeneratedBatchPayload
+from gloss.core.models import Entry, Generated, GeneratedBatchPayload, normalized
 from gloss.core.ports import ProviderError
 
 T = TypeVar("T")
@@ -133,23 +133,26 @@ class VertexLanguageModel:
             except ValidationError:
                 continue
         wanted = {entry.index for entry in entries}
-        if (
-            parsed_items
-            and len(parsed_items) == len(entries)
-            and not any(item.index in wanted for item in parsed_items)
-        ):
-            # The model renumbered the batch from zero instead of preserving the
-            # global indices. The order is still reliable, so adopt it positionally.
-            for entry, item in zip(entries, parsed_items, strict=True):
-                item.index = entry.index
         valid: dict[int, Generated] = {}
-        ambiguous: set[int] = set()
-        for item in parsed_items:
-            if item.index in valid:
-                ambiguous.add(item.index)
-            elif item.index in wanted:
+        pool = list(parsed_items)
+        if {item.index for item in pool} == wanted and len(pool) == len(wanted):
+            # The model preserved the exact index set, so its indices are reliable.
+            for item in pool:
                 valid[item.index] = item
-        return [item for index, item in valid.items() if index not in ambiguous]
+        else:
+            # The indices are renumbered, partially wrong, or duplicated. Recover by
+            # matching the input word, which cannot bind a definition to a word other
+            # than the one it was written for.
+            for entry in entries:
+                match = next(
+                    (item for item in pool if normalized(item.word) == normalized(entry.word)),
+                    None,
+                )
+                if match is not None:
+                    pool.remove(match)
+                    match.index = entry.index
+                    valid[entry.index] = match
+        return list(valid.values())
 
 
 def encode_mp3(data: bytes) -> bytes:
