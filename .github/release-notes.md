@@ -1,4 +1,6 @@
-Anki status has its own column beside audio readiness. On narrow screens it sits with the row actions. The "In Anki" badge follows the app's light and dark themes.
+Large batches are now reliable and visible. Generation and audio runs report progress, keep the order you entered, and isolate failures so one bad response no longer discards the rest of the batch.
+
+Other fixes: a renumbered model response can no longer attach a definition to the wrong word; duplicate words that map to one Anki note are surfaced so you can keep both; syncing without complete audio no longer erases audio held only by Anki; a bad update rolls back to the previous release; and an unreadable settings file no longer stops Gloss from starting.
 
 Gloss creates English vocabulary cards with Sinhala meanings, examples, and pronunciation audio for Anki.
 
