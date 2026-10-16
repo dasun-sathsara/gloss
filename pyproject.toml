@@ -10,7 +10,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
   "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1",
   "pydantic-settings>=2.8,<3", "google-genai>=1.0,<3",
-  "imageio-ffmpeg>=0.6,<1", "json-repair>=0.40,<1", "filelock>=3.18,<4",
+  "imageio-ffmpeg>=0.6,<1", "json-repair>=0.40,<1", "filelock>=4.0.12,<5",
 ]
 
 [project.scripts]
