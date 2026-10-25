@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AnkiStatus, Preferences } from "../lib";
 import { Choice } from "./Choice";
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Field, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
@@ -98,6 +99,17 @@ export function Settings({
           onChange={(value) => change("theme", value as Preferences["theme"])}
         />
       </div>
+      <Field orientation="horizontal" className="gap-2">
+        <Checkbox
+          id="settings-auto_audio"
+          checked={draft.auto_audio}
+          disabled={locked}
+          onCheckedChange={(checked) => change("auto_audio", checked === true)}
+        />
+        <FieldLabel htmlFor="settings-auto_audio">
+          Record audio automatically after writing words and saving edits
+        </FieldLabel>
+      </Field>
       <section className="settings-section">
         <h3>Anki</h3>
         <div className="settings-grid">

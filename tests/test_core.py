@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from gloss.core import orchestrator
 from gloss.core.events import Job, Jobs
 from gloss.core.models import Entry, Generated
 from gloss.core.orchestrator import Orchestrator
@@ -36,10 +37,14 @@ async def test_generation_salvages_batch_and_retries_only_missing(library, prefe
     assert progress[-1]["data"] == {"stage": "text", "completed": 2, "total": 2}
 
 
-async def test_cached_audio_deduplicates_calls_and_retries_metered(library, card, preferences):
+async def test_cached_audio_deduplicates_calls_and_retries_metered(
+    library, card, preferences, monkeypatch
+):
+    monkeypatch.setattr(orchestrator, "backoff", lambda attempt, rate_limited: 0)
     card.meaning = card.word
     card.example1 = card.word
     card.example2 = card.word
+    library.save(card)
     calls = 0
 
     class Synth:
@@ -52,23 +57,36 @@ async def test_cached_audio_deduplicates_calls_and_retries_metered(library, card
 
     preferences.tts_rpm = 120
     service = Orchestrator(library)
-    await service.audio(Job("audio"), [card], Synth(), preferences)
+    stats = await service.audio(Job("audio"), [card], Synth(), preferences)
     assert calls == 2
-    assert len(set(card.audio.values())) == 1
-    await service.audio(Job("audio"), [card], Synth(), preferences)
+    saved = library.get(card.id)
+    assert len(set(saved.audio.values())) == 1
+    assert stats == {"clips": 4, "ready": 4, "failed": 0, "skipped": 0}
+    job = Job("audio")
+    stats = await service.audio(job, [saved], Synth(), preferences)
     assert calls == 2
+    # Clips that are already present are counted, not re-recorded.
+    assert stats["ready"] == 4
+    assert not [event for event in job.events if event["event"] == "card"]
 
 
-async def test_audio_failure_is_isolated_and_ceiling_is_hard(library, card, preferences):
+async def test_audio_failure_is_isolated_and_ceiling_is_hard(
+    library, card, preferences, monkeypatch
+):
+    monkeypatch.setattr(orchestrator, "backoff", lambda attempt, rate_limited: 0)
+    library.save(card)
+
     class Synth:
         async def synthesize(self, text):
             if text == card.word:
                 raise ProviderError("missing voice")
             return b"mp3"
 
-    await Orchestrator(library).audio(Job("audio"), [card], Synth(), preferences)
-    assert set(card.audio) == {"meaning", "example1", "example2"}
-    assert card.audio_errors["word"] == "missing voice"
+    stats = await Orchestrator(library).audio(Job("audio"), [card], Synth(), preferences)
+    saved = library.get(card.id)
+    assert set(saved.audio) == {"meaning", "example1", "example2"}
+    assert saved.audio_errors["word"] == "missing voice"
+    assert stats["failed"] == 1
     preferences.call_budget = 4
 
     class AlwaysFail:
@@ -76,17 +94,75 @@ async def test_audio_failure_is_isolated_and_ceiling_is_hard(library, card, pref
             raise ProviderError("quota", retryable=True)
 
     service = Orchestrator(library)
-    fresh = card.model_copy(deep=True)
+    fresh = saved.model_copy(deep=True)
     fresh.meaning += " changed"
     fresh.example1 += " changed"
     fresh.example2 += " changed"
+    library.save(fresh)
     job = Job("audio")
     await service.audio(job, [fresh], AlwaysFail(), preferences)
     # The ceiling stops the run without discarding completed work and without
     # aborting every remaining clip.
-    assert "word" in fresh.audio_errors
-    assert any("ceiling" in message.lower() for message in fresh.audio_errors.values())
+    errors = library.get(fresh.id).audio_errors
+    assert "word" in errors
+    assert any("ceiling" in message.lower() for message in errors.values())
     assert any(event["event"] == "progress" for event in job.events)
+
+
+async def test_quota_errors_pause_every_worker_and_then_succeed(
+    library, card, preferences, monkeypatch
+):
+    monkeypatch.setattr(orchestrator, "backoff", lambda attempt, rate_limited: 0.2)
+    library.save(card)
+    calls = 0
+
+    class Throttled:
+        async def synthesize(self, text):
+            nonlocal calls
+            calls += 1
+            if calls <= 2:
+                raise ProviderError("quota", rate_limited=True)
+            return b"mp3"
+
+    service = Orchestrator(library)
+    started = asyncio.get_running_loop().time()
+    stats = await service.audio(Job("audio"), [card], Throttled(), preferences)
+    assert stats["ready"] == 4
+    assert stats["failed"] == 0
+    assert service.rate is not None
+    # The cooldown went to the shared limiter, so the run waited at least once.
+    assert asyncio.get_running_loop().time() - started >= 0.2
+
+
+async def test_edits_saved_during_audio_are_never_overwritten(library, card, preferences):
+    library.save(card)
+    gate = asyncio.Event()
+    texts = []
+
+    class Slow:
+        async def synthesize(self, text):
+            texts.append(text)
+            await gate.wait()
+            return b"mp3"
+
+    preferences.tts_concurrency = 1
+    service = Orchestrator(library)
+    run = asyncio.create_task(service.audio(Job("audio"), [card], Slow(), preferences))
+    while not texts:
+        await asyncio.sleep(0)
+    # The word clip is in flight. Edit it and a queued clip, then let the run finish.
+    edited = library.get(card.id)
+    edited.word = "records"
+    edited.example2 = "A new example."
+    library.save(edited)
+    gate.set()
+    stats = await run
+    saved = library.get(card.id)
+    assert saved.word == "records"
+    assert saved.example2 == "A new example."
+    assert set(saved.audio) == {"meaning", "example1"}
+    assert card.example2 not in texts
+    assert stats["skipped"] == 2
 
 
 async def test_cancel_preserves_completed_cards_and_delivers_terminal_event(library, card):

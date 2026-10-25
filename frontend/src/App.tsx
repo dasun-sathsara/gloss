@@ -11,7 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { WordTable } from "./components/WordTable";
 import { useGloss } from "./hooks/useGloss";
-import { api, type Decision, type Job } from "./lib";
+import { api, type Card, type Decision, type Job } from "./lib";
 
 export default function App() {
   const g = useGloss();
@@ -132,7 +132,7 @@ export default function App() {
                   <FieldLabel htmlFor="words-input">Words</FieldLabel>
                   <Textarea
                     id="words-input"
-                    placeholder={"curious\nresilient\nrecord: a written account"}
+                    placeholder="Paste words here, one per line"
                     value={g.text}
                     onChange={(event) => g.setText(event.target.value)}
                     disabled={g.busy}
@@ -145,6 +145,7 @@ export default function App() {
                         g.parsed?.count &&
                         !g.busy &&
                         b.provider_ready &&
+                        g.deck &&
                         !deckMissing
                       ) {
                         event.preventDefault();
@@ -212,7 +213,12 @@ export default function App() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={g.busy || !g.readySelection.length}
+                  disabled={g.busy || !g.missingCount}
+                  title={
+                    g.readySelection.length && !g.missingCount
+                      ? "Audio is ready for the selected words."
+                      : undefined
+                  }
                   className="batch-action"
                   onClick={g.audio}
                 >
@@ -234,22 +240,32 @@ export default function App() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  disabled={g.busy || !g.selected.size}
-                  onClick={() => g.remove([...g.selected])}
+                  disabled={g.editLocked || !g.selected.size}
+                  onClick={() => g.setRemoveIds([...g.selected])}
                 >
                   Remove selected
                 </Button>
               </div>
             </div>
             {g.job && (
-              <div className="job-status" role="status" aria-live="polite">
-                <span>
-                  {g.job.kind === "text"
-                    ? "Generating words…"
-                    : g.job.kind === "audio"
-                      ? "Preparing audio…"
-                      : "Saving notes in Anki…"}
-                  {g.progress ? ` ${g.progress.completed}/${g.progress.total}` : ""}
+              <div
+                className="job-status"
+                role="status"
+                aria-live="polite"
+                data-determinate={g.progress?.total ? true : undefined}
+              >
+                <span className="job-label">
+                  <span>
+                    {g.job.kind === "sync"
+                      ? "Saving notes in Anki…"
+                      : g.audioRunning
+                        ? "Recording audio…"
+                        : "Writing words…"}
+                    {g.progress?.total ? ` ${g.progress.completed}/${g.progress.total}` : ""}
+                  </span>
+                  {g.audioRunning && (
+                    <span className="job-hint">You can edit words while audio records.</span>
+                  )}
                 </span>
                 {g.job.kind !== "sync" && (
                   <Button
@@ -265,6 +281,13 @@ export default function App() {
                     Cancel
                   </Button>
                 )}
+                {g.progress?.total ? (
+                  <span
+                    className="job-progress"
+                    aria-hidden="true"
+                    style={{ width: `${(100 * g.progress.completed) / g.progress.total}%` }}
+                  />
+                ) : null}
               </div>
             )}
             {g.visibleCards.length ? (
@@ -273,6 +296,8 @@ export default function App() {
                 selected={g.selected}
                 dirty={g.dirty}
                 disabled={g.busy}
+                editDisabled={g.editLocked}
+                jobActive={!!g.job}
                 library={g.view === "library"}
                 onSelect={(id) =>
                   g.setSelected((old) => {
@@ -295,10 +320,10 @@ export default function App() {
                 onChange={g.changeCard}
                 onSave={(card) =>
                   g.perform(async () => {
-                    await g.saveCard(card);
+                    await g.saveEdit(card);
                   })
                 }
-                onRemove={(id) => g.remove([id])}
+                onRemove={(id) => g.setRemoveIds([id])}
                 onRetry={g.retry}
                 onListen={g.listen}
               />
@@ -398,6 +423,32 @@ export default function App() {
             }
           >
             Set up Anki
+          </Button>
+        </div>
+      </Modal>
+      <Modal
+        title={g.removeIds.length === 1 ? "Remove this word?" : "Remove these words?"}
+        open={g.removeIds.length > 0}
+        onOpenChange={(open) => {
+          if (!open) g.setRemoveIds([]);
+        }}
+      >
+        <p>
+          {g.removeIds.length === 1
+            ? `“${removeLabel(g.cards, g.removeIds[0])}” will be deleted from Gloss, with its edits.`
+            : `${g.removeIds.length} words will be deleted from Gloss, with their edits.`}{" "}
+          Notes already in Anki stay in Anki.
+        </p>
+        <div className="dialog-footer">
+          <Button variant="outline" onClick={() => g.setRemoveIds([])}>
+            Keep
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={g.pending || (g.busy && !g.audioRunning)}
+            onClick={() => g.remove(g.removeIds)}
+          >
+            Remove
           </Button>
         </div>
       </Modal>
@@ -525,6 +576,11 @@ export default function App() {
       </Modal>
     </div>
   );
+}
+
+function removeLabel(cards: Card[], id: string | undefined) {
+  const card = cards.find((value) => value.id === id);
+  return card?.word || card?.source_word || "This word";
 }
 
 import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";

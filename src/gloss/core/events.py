@@ -12,6 +12,8 @@ from uuid import uuid4
 class Job:
     kind: str
     id: str = field(default_factory=lambda: uuid4().hex)
+    # "text" or "audio". A generation run moves to "audio" once the words are written.
+    stage: str = ""
     events: list[dict[str, Any]] = field(default_factory=list)
     done: bool = False
     task: asyncio.Task[None] | None = None
@@ -55,7 +57,7 @@ class Jobs:
     def start(self, kind: str, run) -> Job:
         if self.active:
             raise ValueError("A run is already active. Wait or cancel it first.")
-        job = Job(kind=kind)
+        job = Job(kind=kind, stage=kind)
         self.history.append(job)
 
         async def execute() -> None:

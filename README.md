@@ -28,8 +28,11 @@ cloud projects, keys, or IAM roles. Generation makes billable API calls.
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.
 Choose a deck once for the batch, then generate. Ctrl+Enter or Cmd+Enter also starts generation.
 
-Edit each card before choosing **Prepare audio**. Gloss creates audio for the word,
-definition, and both examples. Editing a field invalidates only its clip.
+Gloss records audio for the word, definition, and both examples right after it writes
+the words. You can keep editing while audio records. Saving an edit re-records only the
+changed clip. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
+audio in Settings to record only when you choose **Prepare audio**. New words join the
+unsynced words already in the batch for the same deck.
 Choose **Sync to Anki** when the selected cards are ready. For conflicting meanings,
 keep both, overwrite, or skip. Updates preserve the existing note and review history.
 Changing a synced word or part of speech creates a new identity and leaves the old note in Anki.

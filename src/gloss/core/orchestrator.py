@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import random
 import time
 from collections.abc import Callable
 
@@ -28,6 +29,19 @@ class RateLimiter:
             if wait:
                 await asyncio.sleep(wait)
             self.next_time = time.monotonic() + self.interval
+
+    def pause(self, seconds: float) -> None:
+        """Hold every worker back after a quota error, not only the one that hit it."""
+        self.next_time = max(self.next_time, time.monotonic() + seconds)
+
+
+CLIP_ATTEMPTS = 5
+
+
+def backoff(attempt: int, rate_limited: bool) -> float:
+    # Quota windows are about a minute long, so short sleeps only burn attempts.
+    base = min(60.0, 10.0 * 2**attempt) if rate_limited else float(2**attempt)
+    return base + random.uniform(0, 1)
 
 
 def clip_key(preferences: Preferences, text: str) -> str:
@@ -63,10 +77,12 @@ class Orchestrator:
         model: LanguageModel,
         preferences: Preferences,
         retry_id: str | None = None,
-    ) -> None:
+    ) -> list[Card]:
+        """Write cards for the entries and return them in input order."""
+        job.stage = "text"
         total = len(entries)
         if not total:
-            return
+            return []
         batches = [
             entries[index : index + preferences.batch_size]
             for index in range(0, total, preferences.batch_size)
@@ -74,6 +90,7 @@ class Orchestrator:
         semaphore = asyncio.Semaphore(2)
         progress_lock = asyncio.Lock()
         completed = 0
+        written: dict[int, Card] = {}
         # A monotonic per-card order so the client can show input order even though
         # two batches run concurrently and finish out of order.
         base_order = int(time.time() * 1000) * 1000
@@ -116,8 +133,9 @@ class Orchestrator:
                     card.audio[kind] = old.audio[kind]
             return card
 
-        async def publish(card: Card) -> None:
+        async def publish(entry: Entry, card: Card) -> None:
             nonlocal completed
+            written[entry.index] = card
             self.library.save(card)
             job.emit("card", card.model_dump())
             async with progress_lock:
@@ -156,13 +174,15 @@ class Orchestrator:
                         raise
                     reason = str(exc)
                     for entry in items:
-                        await publish(fallback(entry, reason))
+                        await publish(entry, fallback(entry, reason))
                     return
                 except Exception:
                     # One malformed response must not discard the other batches.
                     logger.exception("Text generation failed for a batch")
                     for entry in items:
-                        await publish(fallback(entry, "This batch failed. Retry these words."))
+                        await publish(
+                            entry, fallback(entry, "This batch failed. Retry these words.")
+                        )
                     return
                 received = (
                     {item.index: item for item in results}
@@ -176,7 +196,7 @@ class Orchestrator:
                     else:
                         reason = ""
                     card = build(entry, item) if item is not None else fallback(entry, reason)
-                    await publish(card)
+                    await publish(entry, card)
 
         tasks = [asyncio.create_task(batch(items)) for items in batches]
         try:
@@ -186,16 +206,15 @@ class Orchestrator:
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+        return [written[index] for index in sorted(written)]
 
     async def clip(
         self,
-        card: Card,
-        kind: ClipKind,
+        text: str,
         synth: Synthesizer,
         preferences: Preferences,
         spend: Callable[[], None],
     ) -> str:
-        text = card.clip_text(kind)
         if not text.strip():
             raise ValueError("Add text before generating audio.")
         key = clip_key(preferences, text)
@@ -206,7 +225,7 @@ class Orchestrator:
             if self.rate is None or self.rate_rpm != preferences.tts_rpm:
                 self.rate = RateLimiter(preferences.tts_rpm)
                 self.rate_rpm = preferences.tts_rpm
-            for attempt in range(3):
+            for attempt in range(CLIP_ATTEMPTS):
                 await self.rate.acquire()
                 spend()
                 try:
@@ -214,9 +233,13 @@ class Orchestrator:
                         data = await synth.synthesize(text)
                     return self.library.save_clip(key, data)
                 except ProviderError as exc:
-                    if not exc.retryable or attempt == 2:
+                    if not exc.retryable or attempt == CLIP_ATTEMPTS - 1:
                         raise
-                    await asyncio.sleep(2**attempt)
+                    delay = backoff(attempt, exc.rate_limited)
+                    if exc.rate_limited:
+                        self.rate.pause(delay)
+                    else:
+                        await asyncio.sleep(delay)
         raise AssertionError("unreachable")
 
     async def audio(
@@ -226,14 +249,27 @@ class Orchestrator:
         synth: Synthesizer,
         preferences: Preferences,
         only: ClipKind | None = None,
-    ) -> None:
-        planned = [
-            (card, kind)
-            for card in cards
-            if card.ready()
-            for kind in ((only,) if only else CLIP_KINDS)
-        ]
+    ) -> dict[str, int]:
+        """Record missing clips and return how many clips are ready, failed, or skipped.
+
+        Each result is written to the card as it is now in the library, and only when
+        the clip's text is unchanged. Edits saved during the run are never overwritten.
+        """
+        job.stage = "audio"
+        ready = 0
+        planned: list[tuple[str, ClipKind, str]] = []
+        for card in cards:
+            if not card.ready():
+                continue
+            for kind in (only,) if only else CLIP_KINDS:
+                text = card.clip_text(kind)
+                cached = self.library.clip(clip_key(preferences, text))
+                if cached and card.audio.get(kind) == cached:
+                    ready += 1
+                else:
+                    planned.append((card.id, kind, text))
         total = len(planned)
+        stats = {"clips": total + ready, "ready": ready, "failed": 0, "skipped": 0}
         semaphore = asyncio.Semaphore(preferences.tts_concurrency)
         progress_lock = asyncio.Lock()
         completed = 0
@@ -255,25 +291,60 @@ class Orchestrator:
                     fatal=False,
                 )
 
-        async def clip(card: Card, kind: ClipKind) -> None:
+        def current(card_id: str, kind: ClipKind, text: str) -> Card | None:
+            """The saved card, or None if it was removed or this clip's text was edited."""
+            try:
+                card = self.library.get(card_id)
+            except KeyError:
+                return None
+            return card if card.clip_text(kind) == text else None
+
+        def record(
+            card_id: str, kind: ClipKind, text: str, filename: str = "", error: str = ""
+        ) -> None:
+            card = current(card_id, kind, text)
+            if card is None:
+                stats["skipped"] += 1
+                return
+            if filename:
+                card.audio[kind] = filename
+                card.audio_errors.pop(kind, None)
+                stats["ready"] += 1
+            else:
+                card.audio_errors[kind] = error
+                stats["failed"] += 1
+            self.library.save(card)
+            job.emit("card", card.model_dump())
+
+        async def clip(card_id: str, kind: ClipKind, text: str) -> None:
             nonlocal completed
             async with semaphore:
                 try:
                     if exhausted:
-                        card.audio_errors[kind] = "Skipped: the audio request ceiling was reached."
+                        record(
+                            card_id,
+                            kind,
+                            text,
+                            error="Skipped: the audio request ceiling was reached.",
+                        )
+                    elif current(card_id, kind, text) is None:
+                        # Edited or removed while queued. Do not pay for a stale clip.
+                        stats["skipped"] += 1
                     else:
-                        card.audio[kind] = await self.clip(card, kind, synth, preferences, spend)
-                        card.audio_errors.pop(kind, None)
+                        filename = await self.clip(text, synth, preferences, spend)
+                        record(card_id, kind, text, filename=filename)
                 except asyncio.CancelledError:
-                    card.audio_errors[kind] = "Stopped before this clip finished."
+                    record(card_id, kind, text, error="Stopped before this clip finished.")
                     raise
                 except ProviderError as exc:
-                    card.audio_errors[kind] = str(exc)
+                    record(card_id, kind, text, error=str(exc))
                     if exc.fatal:
                         raise
+                except Exception:
+                    # One unexpected failure must not abort the other clips.
+                    logger.exception("Audio clip failed")
+                    record(card_id, kind, text, error="This clip failed. Retry it.")
                 finally:
-                    self.library.save(card)
-                    job.emit("card", card.model_dump())
                     async with progress_lock:
                         completed += 1
                         job.emit(
@@ -281,7 +352,7 @@ class Orchestrator:
                             {"stage": "audio", "completed": completed, "total": total},
                         )
 
-        tasks = [asyncio.create_task(clip(card, kind)) for card, kind in planned]
+        tasks = [asyncio.create_task(clip(*item)) for item in planned]
         try:
             await asyncio.gather(*tasks)
         finally:
@@ -290,3 +361,4 @@ class Orchestrator:
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             self.clip_locks.clear()
+        return stats

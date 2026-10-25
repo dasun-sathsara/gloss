@@ -52,12 +52,22 @@ async def retry_call[T](operation: Callable[[], Awaitable[T]], attempts: int = 3
                 ) from exc
             if code == 429 and attempt == attempts - 1:
                 raise ProviderError(
-                    "Google's request quota is exhausted. Wait, then retry.", retryable=True
+                    "Google's request quota is exhausted. Wait, then retry.", rate_limited=True
+                ) from exc
+            if code == 400 and "generate text" in (exc.message or "").lower():
+                # Speech models occasionally answer with text instead of audio, mostly
+                # for very short inputs. The same request usually succeeds on retry.
+                raise ProviderError(
+                    "The speech model returned text instead of audio. Retry this clip.",
+                    retryable=True,
                 ) from exc
             if code not in {429, 500, 502, 503, 504} or attempt == attempts - 1:
-                raise ProviderError(
-                    f"Google returned HTTP {code}. Check the selected model.", retryable=code >= 500
-                ) from exc
+                message = (
+                    f"Google had a temporary error (HTTP {code}). Retry."
+                    if code >= 500
+                    else f"Google returned HTTP {code}. Check the selected model."
+                )
+                raise ProviderError(message, retryable=code >= 500) from exc
             await asyncio.sleep(2**attempt + random.uniform(0, 1))
     raise AssertionError("unreachable")
 
@@ -161,9 +171,11 @@ def encode_mp3(data: bytes) -> bytes:
             if wav.getnchannels() != 1 or wav.getsampwidth() != 2 or wav.getframerate() != 24000:
                 raise ProviderError("The speech model returned an unexpected WAV format.")
             if wav.getnframes() == 0:
-                raise ProviderError("The speech model returned an empty clip.")
+                raise ProviderError("The speech model returned an empty clip.", retryable=True)
     except (wave.Error, EOFError) as exc:
-        raise ProviderError("The speech model did not return a complete WAV file.") from exc
+        raise ProviderError(
+            "The speech model did not return a complete WAV file.", retryable=True
+        ) from exc
     try:
         ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
     except RuntimeError as exc:
@@ -204,10 +216,10 @@ def encode_mp3(data: bytes) -> bytes:
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ProviderError(
-            "MP3 encoding failed. Retry the clip or reinstall dependencies."
+            "MP3 encoding failed. Retry the clip or reinstall dependencies.", retryable=True
         ) from exc
     if len(result.stdout) < 100:
-        raise ProviderError("The MP3 encoder returned an empty clip.")
+        raise ProviderError("The MP3 encoder returned an empty clip.", retryable=True)
     return result.stdout
 
 
@@ -256,4 +268,4 @@ class VertexSynthesizer:
             ):
                 if part.inline_data and part.inline_data.data:
                     return await asyncio.to_thread(encode_mp3, part.inline_data.data)
-        raise ProviderError("Google returned no audio. Retry this clip.")
+        raise ProviderError("Google returned no audio. Retry this clip.", retryable=True)

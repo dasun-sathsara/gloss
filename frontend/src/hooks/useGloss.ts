@@ -6,13 +6,17 @@ import {
   type Card,
   type Clip,
   type Conflict,
+  describeSummary,
   editable,
   hasAudio,
   isReady,
   type Job,
+  mergeIncoming,
+  missingClips,
   type Parsed,
   type Preferences,
   type Progress,
+  type Summary,
 } from "../lib";
 
 const emptyAnki: AnkiStatus = { connected: false, ready: false, decks: [] };
@@ -52,12 +56,20 @@ export function useGloss() {
   const [allowMissing, setAllowMissing] = useState(false);
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [listenAfter, setListenAfter] = useState<{ id: string; kind: Clip } | null>(null);
+  // Cards whose edits were saved and still need audio. Recorded once the current run ends.
+  const [audioQueue, setAudioQueue] = useState<Set<string>>(new Set());
+  const [removeIds, setRemoveIds] = useState<string[]>([]);
+  const removed = useRef<Set<string>>(new Set());
   const source = useRef<EventSource | null>(null);
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
   const busy = pending || !!job;
+  const stage = progress?.stage ?? job?.stage ?? job?.kind;
+  const audioRunning = !!job && stage === "audio";
+  // Words stay editable while audio records. The server keeps edits and drops stale clips.
+  const editLocked = pending || (!!job && !audioRunning);
 
   const updateCard = useCallback((card: Card) => {
     setCards((old) =>
@@ -65,6 +77,16 @@ export function useGloss() {
         ? old.map((value) => (value.id === card.id ? card : value))
         : [card, ...old],
     );
+  }, []);
+  const receiveCard = useCallback((card: Card) => {
+    // A run can report a card the user removed a moment ago. Do not bring it back.
+    if (removed.current.has(card.id)) return;
+    setCards((old) => {
+      const local = old.find((value) => value.id === card.id);
+      if (!local) return [card, ...old];
+      const next = dirtyRef.current.has(card.id) ? mergeIncoming(local, card) : card;
+      return old.map((value) => (value.id === card.id ? next : value));
+    });
   }, []);
   const refreshAnki = useCallback(async () => {
     const status = await api<AnkiStatus>("/anki");
@@ -177,10 +199,11 @@ export function useGloss() {
     let ended = false;
     const eventSource = new EventSource(`/api/jobs/${job.id}/events`);
     source.current = eventSource;
+    let outcome: "ok" | "failed" | "cancelled" = "ok";
     eventSource.addEventListener("card", (event) => {
       const card: Card = JSON.parse((event as MessageEvent).data);
-      updateCard(card);
-      if (job.kind === "text") {
+      receiveCard(card);
+      if (job.kind === "text" && !removed.current.has(card.id)) {
         setBatchIds((old) => new Set([...old, card.id]));
         if (card.valid) setSelected((old) => new Set([...old, card.id]));
       }
@@ -188,24 +211,32 @@ export function useGloss() {
     eventSource.addEventListener("progress", (event) =>
       setProgress(JSON.parse((event as MessageEvent).data)),
     );
-    eventSource.addEventListener("failed", (event) =>
-      setError(JSON.parse((event as MessageEvent).data).message),
-    );
+    eventSource.addEventListener("failed", (event) => {
+      outcome = "failed";
+      setError(JSON.parse((event as MessageEvent).data).message);
+    });
+    eventSource.addEventListener("summary", (event) => {
+      const summary: Summary = JSON.parse((event as MessageEvent).data);
+      const message = describeSummary(summary);
+      if (message) setNotice(message);
+    });
     eventSource.addEventListener("conflicts", (event) =>
       setConflicts(JSON.parse((event as MessageEvent).data)),
     );
     eventSource.addEventListener("sync_started", (event) =>
       setNotice(JSON.parse((event as MessageEvent).data).message),
     );
-    eventSource.addEventListener("cancelled", () =>
-      setNotice("Stopped. Completed words and audio are saved."),
-    );
+    eventSource.addEventListener("cancelled", () => {
+      outcome = "cancelled";
+      setNotice("Stopped. Completed words and audio are saved.");
+    });
     eventSource.addEventListener("done", () => {
       ended = true;
       eventSource.close();
       setJob(null);
       setProgress(null);
-      if (job.kind === "audio") setNotice("Audio finished.");
+      // Edits saved during a stopped or failed run wait for the user to choose again.
+      if (outcome !== "ok") setAudioQueue(new Set());
       if (job.kind === "sync") refreshAnki().catch(() => {});
     });
     eventSource.onerror = async () => {
@@ -234,7 +265,27 @@ export function useGloss() {
       eventSource.close();
       source.current = null;
     };
-  }, [job, refreshAnki, updateCard]);
+  }, [job, refreshAnki, receiveCard]);
+
+  useEffect(() => {
+    if (job || pending || !audioQueue.size) return;
+    const ids = [...audioQueue].filter((id) => {
+      const card = cardsRef.current.find((value) => value.id === id);
+      return card && isReady(card) && !hasAudio(card) && !dirtyRef.current.has(id);
+    });
+    setAudioQueue(new Set());
+    if (!ids.length) return;
+    setPending(true);
+    api<Job>("/audio", "POST", { ids })
+      .then((next) => {
+        setProgress(null);
+        setJob(next);
+      })
+      .catch((error) =>
+        setError(error instanceof Error ? error.message : "Audio could not start. Try again."),
+      )
+      .finally(() => setPending(false));
+  }, [job, pending, audioQueue]);
 
   useEffect(() => {
     if (!job && listenAfter) {
@@ -269,6 +320,12 @@ export function useGloss() {
     });
     return saved;
   };
+  /** Save from the editor, then record any clip the edit invalidated. */
+  const saveEdit = async (card: Card) => {
+    const saved = await saveCard(card);
+    if (bootstrap?.settings.auto_audio && isReady(saved) && !hasAudio(saved))
+      setAudioQueue((old) => new Set([...old, saved.id]));
+  };
   const flush = async () => {
     const values = cardsRef.current.filter((card) => dirty.has(card.id));
     await Promise.all(values.map(saveCard));
@@ -296,8 +353,16 @@ export function useGloss() {
     await perform(async () => {
       await flush();
       const next = await api<Job>("/generate", "POST", { text, deck, confirm_over_cap: confirmed });
-      setBatchIds(new Set());
-      setSelected(new Set());
+      // New words join the words still waiting for Anki in this deck. Synced words and
+      // other decks leave the batch and stay in the library.
+      const keep = new Set(
+        cardsRef.current
+          .filter((card) => batchIds.has(card.id) && !card.note_id && card.deck === deck)
+          .map((card) => card.id),
+      );
+      setBatchIds(keep);
+      setSelected((old) => new Set([...old].filter((id) => keep.has(id))));
+      setText("");
       setView("review");
       setJob(next);
       setProgress(null);
@@ -360,18 +425,26 @@ export function useGloss() {
       setSyncDialog({ ids, ...pull });
       setAllowMissing(false);
     });
+
   const missing = readySelection.some((card) => !hasAudio(card));
+  const missingCount = readySelection.reduce((total, card) => total + missingClips(card), 0);
 
   const remove = (ids: string[]) =>
     perform(async () => {
       const settled = await Promise.allSettled(ids.map((id) => api(`/cards/${id}`, "DELETE")));
-      const removed = new Set(ids.filter((_, index) => settled[index].status === "fulfilled"));
+      const gone = new Set(ids.filter((_, index) => settled[index].status === "fulfilled"));
       const failed = ids.filter((_, index) => settled[index].status === "rejected");
-      setCards((old) => old.filter((card) => !removed.has(card.id)));
-      setSelected((old) => new Set([...old].filter((id) => !removed.has(id))));
-      setBatchIds((old) => new Set([...old].filter((id) => !removed.has(id))));
-      setDirty((old) => new Set([...old].filter((id) => !removed.has(id))));
-      if (failed.length) throw new Error(`${failed.length} word(s) could not be removed.`);
+      for (const id of gone) removed.current.add(id);
+      setCards((old) => old.filter((card) => !gone.has(card.id)));
+      setSelected((old) => new Set([...old].filter((id) => !gone.has(id))));
+      setBatchIds((old) => new Set([...old].filter((id) => !gone.has(id))));
+      setDirty((old) => new Set([...old].filter((id) => !gone.has(id))));
+      setAudioQueue((old) => new Set([...old].filter((id) => !gone.has(id))));
+      setRemoveIds([]);
+      if (failed.length)
+        throw new Error(
+          `${failed.length} ${failed.length === 1 ? "word" : "words"} could not be removed.`,
+        );
     });
   const retry = (card: Card) =>
     perform(async () => {
@@ -427,6 +500,12 @@ export function useGloss() {
     progress,
     pending,
     busy,
+    audioRunning,
+    editLocked,
+    removeIds,
+    setRemoveIds,
+    missingCount,
+    saveEdit,
     view,
     changeView,
     search,

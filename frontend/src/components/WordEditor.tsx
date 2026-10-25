@@ -17,6 +17,7 @@ const fields = [
 export function WordEditor({
   card,
   disabled,
+  jobActive,
   dirty,
   onChange,
   onSave,
@@ -26,6 +27,7 @@ export function WordEditor({
 }: {
   card: Card;
   disabled: boolean;
+  jobActive: boolean;
   dirty: boolean;
   onChange: (patch: Partial<Card>) => void;
   onSave: () => void;
@@ -82,7 +84,8 @@ export function WordEditor({
             <Button
               variant="outline"
               size="sm"
-              disabled={disabled || !card.valid}
+              // Playing is always fine. Recording a clip starts a run, so it waits.
+              disabled={disabled || !card.valid || (!card.audio[clip] && jobActive)}
               onClick={() => onListen(clip)}
               aria-label={`${card.audio[clip] ? "Play" : "Generate"} ${["word", "definition", "example 1", "example 2"][index]} audio`}
             >
@@ -108,7 +111,7 @@ export function WordEditor({
         <Button size="sm" disabled={disabled || !dirty} onClick={onSave}>
           Save changes
         </Button>
-        <Button variant="ghost" size="sm" disabled={disabled} onClick={onRetry}>
+        <Button variant="ghost" size="sm" disabled={disabled || jobActive} onClick={onRetry}>
           Regenerate
         </Button>
         <Button variant="ghost" size="sm" onClick={onClose}>

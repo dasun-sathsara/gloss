@@ -12,7 +12,16 @@ class Synthesizer(Protocol):
 
 
 class ProviderError(Exception):
-    def __init__(self, message: str, *, retryable: bool = False, fatal: bool = False):
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        fatal: bool = False,
+        rate_limited: bool = False,
+    ):
         super().__init__(message)
-        self.retryable = retryable
+        self.retryable = retryable or rate_limited
         self.fatal = fatal
+        # Quota errors need a long, shared cooldown rather than a quick per-clip retry.
+        self.rate_limited = rate_limited

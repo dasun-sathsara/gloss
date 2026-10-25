@@ -68,7 +68,13 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await page.getByRole("button", { name: "Generate", exact: true }).click();
   await expect(page.locator(".word-row")).toHaveCount(3);
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Generate", exact: true })).toBeEnabled();
+  // Audio records in the same run. No second click is needed.
+  await expect(
+    page.getByText("Added 3 words. 1 to review. Audio is ready.", { exact: true }),
+  ).toBeVisible({ timeout: 20000 });
+  await expect(page.locator(".word-row").getByText("4/4", { exact: true })).toHaveCount(2);
+  await expect(page.getByRole("textbox", { name: "Words", exact: true })).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Prepare audio", exact: true })).toBeDisabled();
   const curious = page
     .locator(".word-row")
     .filter({ has: page.getByText("curious", { exact: true }) });
@@ -98,8 +104,11 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await editor
     .getByRole("textbox", { name: "English definition", exact: true })
     .fill("Wanting to find out more about something.");
+  await expect(curious.getByText("3/4", { exact: true })).toBeVisible();
   await editor.getByRole("button", { name: "Save changes" }).click();
   await expect(editor.getByRole("button", { name: "Save changes" })).toBeDisabled();
+  // Saving the edit re-records only the changed clip.
+  await expect(curious.getByText("4/4", { exact: true })).toBeVisible({ timeout: 20000 });
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("combobox", { name: "Appearance", exact: true }).click();
   await page.getByRole("option", { name: "Dark", exact: true }).click();
@@ -110,9 +119,16 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await editor.getByRole("button", { name: "Close editor" }).click();
   await page.getByRole("checkbox", { name: "Select all words", exact: true }).check();
-  await page.getByRole("button", { name: "Prepare audio", exact: true }).click();
-  await expect(page.getByText("Audio finished.", { exact: true })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole("button", { name: "Prepare audio", exact: true })).toBeDisabled();
   await expect(page.getByRole("alert")).toHaveCount(0);
+  const invalid = page
+    .locator(".word-row")
+    .filter({ has: page.getByText("invalidword", { exact: true }) });
+  await invalid.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Remove this word?" })).toBeVisible();
+  await page.getByRole("button", { name: "Keep", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".word-row")).toHaveCount(3);
   await expect(page.locator(".word-row").getByText("4/4", { exact: true })).toHaveCount(2);
   await page.reload();
   await expect(page.locator(".word-row")).toHaveCount(3);
@@ -142,7 +158,7 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   expect(pulledIds).toHaveLength(2);
   await page.getByRole("button", { name: "Sync finished · Save notes", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Prepare audio", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Sync to Anki", exact: true })).toBeEnabled();
   expect(syncPayload?.ticket).toBe("test-ticket");
   expect(syncPayload?.ids).toEqual(pulledIds);
   await page.route("**/api/generate", (route) =>

@@ -64,6 +64,8 @@ class Preferences(BaseModel):
     tts_concurrency: int = Field(default=2, ge=1, le=3)
     tts_rpm: int = Field(default=20, ge=1, le=120)
     call_budget: int = Field(default=400, ge=4, le=1000)
+    # Record audio right after the words are written, and after saving an edit.
+    auto_audio: bool = True
     theme: str = "system"
     estimated_usd_per_word: float = Field(default=0.0055, ge=0, le=1)
 

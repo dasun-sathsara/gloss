@@ -80,6 +80,10 @@ def create_app(
     sync_ticket: dict[str, Any] = {}
     mutation_lock = asyncio.Lock()
 
+    def unlocked(path: str) -> bool:
+        # Parsing changes nothing, and Cancel must never queue behind a slow Anki call.
+        return path == "/api/parse" or bool(re.fullmatch(r"/api/jobs/[^/]+/cancel", path))
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         yield
@@ -116,7 +120,7 @@ def create_app(
                 )
         if any(part.startswith(".") for part in request.url.path.split("/") if part):
             return JSONResponse({"detail": "Not found."}, status_code=404, headers=security)
-        if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        if request.method not in {"GET", "HEAD", "OPTIONS"} and not unlocked(request.url.path):
             async with mutation_lock:
                 response = await call_next(request)
         else:
@@ -145,8 +149,11 @@ def create_app(
     async def key_error(_: Request, exc: KeyError):
         return JSONResponse({"detail": "This card or run no longer exists."}, status_code=404)
 
-    def idle() -> None:
-        if jobs.active:
+    def idle(during_audio: bool = False) -> None:
+        active = jobs.active
+        # Card edits are safe while audio records: each clip result is merged into
+        # the saved card and dropped if its text changed.
+        if active and not (during_audio and active.stage == "audio"):
             raise HTTPException(409, "Wait for the run to finish, or cancel it to edit.")
 
     def selected(ids: list[str]) -> list[Card]:
@@ -159,25 +166,42 @@ def create_app(
                 card.audio.pop(kind, None)
         return card
 
-    async def with_provider(job: Job, operation, audio: bool = False) -> None:
+    async def with_providers(job: Job, operation) -> None:
         preferences = configuration.preferences.model_copy(deep=True)
         if demo:
             from gloss.providers.demo import DemoLanguageModel, DemoSynthesizer
 
-            provider = DemoSynthesizer() if audio else DemoLanguageModel()
-            await operation(job, provider, preferences)
+            # Test tones cost nothing, so the speech quota does not apply.
+            preferences.tts_rpm = 120
+            await operation(job, DemoLanguageModel(), DemoSynthesizer(), preferences)
             return
         client = make_client(configuration)
         try:
-            provider = (
-                VertexSynthesizer(client, preferences)
-                if audio
-                else VertexLanguageModel(client, preferences)
+            await operation(
+                job,
+                VertexLanguageModel(client, preferences),
+                VertexSynthesizer(client, preferences),
+                preferences,
             )
-            await operation(job, provider, preferences)
         finally:
             await client.aio.aclose()
             client.close()
+
+    async def write_cards(
+        job: Job,
+        entries: list[Entry],
+        deck: str,
+        model,
+        synth,
+        preferences: Preferences,
+        retry_id: str | None = None,
+    ) -> None:
+        cards = await orchestrator.generate(job, entries, deck, model, preferences, retry_id)
+        ready = [card for card in cards if card.ready()]
+        summary: dict[str, Any] = {"words": len(cards), "needs_review": len(cards) - len(ready)}
+        if preferences.auto_audio and ready:
+            summary["audio"] = await orchestrator.audio(job, ready, synth, preferences)
+        job.emit("summary", summary)
 
     @app.get("/api/health")
     async def health():
@@ -194,7 +218,9 @@ def create_app(
             "cards": cards,
             "card_count": total,
             "library_truncated": total > len(cards),
-            "active_job": {"id": active.id, "kind": active.kind} if active else None,
+            "active_job": {"id": active.id, "kind": active.kind, "stage": active.stage}
+            if active
+            else None,
             "provider_ready": bool(configuration.environment.google_cloud_project) or demo,
             "config_dir": str(configuration.directory),
             "demo": demo,
@@ -235,33 +261,34 @@ def create_app(
         if len(entries) > configuration.preferences.word_cap and not paste.confirm_over_cap:
             raise ValueError("This paste exceeds your word cap. Confirm the estimate to continue.")
 
-        async def run(job: Job, provider, preferences):
-            await orchestrator.generate(job, entries, paste.deck, provider, preferences)
+        async def run(job: Job, model, synth, preferences):
+            await write_cards(job, entries, paste.deck, model, synth, preferences)
 
-        job = jobs.start("text", lambda job: with_provider(job, run))
-        return {"id": job.id, "kind": job.kind}
+        job = jobs.start("text", lambda job: with_providers(job, run))
+        return {"id": job.id, "kind": job.kind, "stage": job.stage}
 
     @app.post("/api/cards/{card_id}/retry")
     async def retry(card_id: str):
         idle()
         card = library.get(card_id)
 
-        async def run(job: Job, provider, preferences):
-            await orchestrator.generate(
+        async def run(job: Job, model, synth, preferences):
+            await write_cards(
                 job,
                 [Entry(index=0, word=card.source_word, hint=card.hint)],
                 card.deck,
-                provider,
+                model,
+                synth,
                 preferences,
                 card_id,
             )
 
-        job = jobs.start("text", lambda job: with_provider(job, run))
-        return {"id": job.id, "kind": job.kind}
+        job = jobs.start("text", lambda job: with_providers(job, run))
+        return {"id": job.id, "kind": job.kind, "stage": job.stage}
 
     @app.patch("/api/cards/{card_id}")
     async def edit(card_id: str, edit: CardEdit):
-        idle()
+        idle(during_audio=True)
         card = library.get(card_id)
         previous = card.base_identity()
         for key, value in edit.model_dump().items():
@@ -275,7 +302,7 @@ def create_app(
 
     @app.delete("/api/cards/{card_id}")
     async def remove(card_id: str):
-        idle()
+        idle(during_audio=True)
         library.delete(card_id)
         return {"removed": card_id}
 
@@ -286,11 +313,12 @@ def create_app(
         if any(not card.ready() for card in cards):
             raise ValueError("Finish or remove invalid cards before generating audio.")
 
-        async def run(job: Job, provider, preferences):
-            await orchestrator.audio(job, cards, provider, preferences, selection.kind)
+        async def run(job: Job, _model, synth, preferences):
+            stats = await orchestrator.audio(job, cards, synth, preferences, selection.kind)
+            job.emit("summary", {"audio": stats})
 
-        job = jobs.start("audio", lambda job: with_provider(job, run, audio=True))
-        return {"id": job.id, "kind": job.kind}
+        job = jobs.start("audio", lambda job: with_providers(job, run))
+        return {"id": job.id, "kind": job.kind, "stage": job.stage}
 
     @app.put("/api/batch/deck")
     async def batch_deck(selection: BatchDeck):
@@ -379,7 +407,7 @@ def create_app(
             "sync",
             lambda job: gateway.sync(job, cards, preferences, selection.allow_missing, profile),
         )
-        return {"id": job.id, "kind": job.kind}
+        return {"id": job.id, "kind": job.kind, "stage": job.stage}
 
     @app.get("/media/{filename}")
     async def media(filename: str):

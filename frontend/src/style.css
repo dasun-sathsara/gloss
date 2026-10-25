@@ -662,6 +662,12 @@ textarea {
 .audio-meter > span[data-ready="true"] {
   background: var(--primary);
 }
+.audio-meter > span[data-failed="true"] {
+  background: var(--destructive);
+}
+.audio-count[data-failed="true"] {
+  color: var(--destructive);
+}
 .word-editor input,
 .word-editor textarea {
   min-inline-size: 0;
@@ -708,6 +714,28 @@ textarea {
   height: 2px;
   background: var(--primary);
   animation: job-travel 1.4s ease-in-out infinite;
+}
+.job-status[data-determinate="true"]::after {
+  display: none;
+}
+.job-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--primary);
+  transition: width 300ms var(--ease-feedback);
+}
+.job-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.75rem;
+  min-width: 0;
+}
+.job-hint {
+  color: var(--muted-foreground);
+  font-size: var(--type-meta);
 }
 [data-slot="collapsible-content"] {
   overflow: hidden;

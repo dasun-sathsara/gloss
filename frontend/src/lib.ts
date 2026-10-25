@@ -37,6 +37,7 @@ export interface Preferences {
   tts_concurrency: number;
   tts_rpm: number;
   call_budget: number;
+  auto_audio: boolean;
   theme: "system" | "light" | "dark";
   estimated_usd_per_word: number;
 }
@@ -67,6 +68,18 @@ export interface Parsed {
 export interface Job {
   id: string;
   kind: "text" | "audio" | "sync";
+  stage?: "text" | "audio" | "sync";
+}
+export interface AudioStats {
+  clips: number;
+  ready: number;
+  failed: number;
+  skipped: number;
+}
+export interface Summary {
+  words?: number;
+  needs_review?: number;
+  audio?: AudioStats;
 }
 export interface Progress {
   stage: string;
@@ -128,4 +141,41 @@ export function isReady(card: Card) {
       text.trim(),
     )
   );
+}
+export function missingClips(card: Card) {
+  return clips.filter((clip) => !card.audio[clip]).length;
+}
+/** Apply a server update to a card the user is still editing without losing their text. */
+export function mergeIncoming(local: Card, incoming: Card): Card {
+  const audio = { ...local.audio };
+  const audioErrors = { ...local.audio_errors };
+  for (const clip of clips) {
+    // A clip for text the user has since changed must not be attached.
+    if (local[clip] !== incoming[clip]) continue;
+    if (incoming.audio[clip]) audio[clip] = incoming.audio[clip];
+    else delete audio[clip];
+    if (incoming.audio_errors[clip]) audioErrors[clip] = incoming.audio_errors[clip];
+    else delete audioErrors[clip];
+  }
+  return { ...local, audio, audio_errors: audioErrors };
+}
+function plural(count: number, word: string) {
+  return `${count} ${count === 1 ? word : `${word}s`}`;
+}
+export function describeSummary(summary: Summary): string {
+  const parts: string[] = [];
+  if (summary.words !== undefined) {
+    parts.push(`Added ${plural(summary.words, "word")}.`);
+    if (summary.needs_review) parts.push(`${summary.needs_review} to review.`);
+  }
+  const audio = summary.audio;
+  if (audio?.clips) {
+    if (audio.failed)
+      parts.push(
+        `Audio: ${audio.ready} of ${audio.clips} clips ready. Choose Prepare audio to retry ${audio.failed === 1 ? "the one" : `the ${audio.failed}`} that failed.`,
+      );
+    else if (audio.ready === audio.clips) parts.push("Audio is ready.");
+    else parts.push(`Audio: ${audio.ready} of ${audio.clips} clips ready.`);
+  }
+  return parts.join(" ");
 }

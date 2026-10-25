@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import httpx
@@ -124,3 +125,54 @@ async def test_batch_deck_updates_all_words_atomically(tmp_path, card):
         )
         assert response.status_code == 400
         assert app.state.library.get(card.id).deck == "Gloss::Science"
+
+
+async def test_generation_records_audio_and_allows_edits_while_it_runs(tmp_path):
+    app = create_app(Configuration(tmp_path), demo=True)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://127.0.0.1:8766",
+            headers={"Origin": "http://127.0.0.1:8766"},
+        ) as http,
+    ):
+        response = await http.post(
+            "/api/generate", json={"text": "curious, resilient, nonsense", "deck": "Gloss::General"}
+        )
+        job = app.state.jobs.get(response.json()["id"])
+        while job.stage != "audio" and not job.done:
+            await asyncio.sleep(0.01)
+        assert (await http.get("/api/bootstrap")).json()["active_job"]["stage"] == "audio"
+        # Text edits wait for the run, but card edits are accepted while audio records.
+        assert (await http.post("/api/generate", json={"text": "record"})).status_code == 409
+        card = next(card for card in app.state.library.all() if card.word == "curious")
+        edit = card.model_dump(include=set(CardFields))
+        edit["example2"] = "She was curious about the noise."
+        assert (await http.patch(f"/api/cards/{card.id}", json=edit)).status_code == 200
+        await job.task
+        summary = next(event["data"] for event in job.events if event["event"] == "summary")
+        assert summary["words"] == 3
+        assert summary["needs_review"] == 1
+        assert summary["audio"]["failed"] == 0
+        saved = app.state.library.get(card.id)
+        assert saved.example2 == "She was curious about the noise."
+        resilient = next(card for card in app.state.library.all() if card.word == "resilient")
+        assert len(resilient.audio) == 4
+        # Whether the edit landed before or after its clip was recorded, the edited
+        # field never keeps audio for its old text.
+        assert "example2" not in saved.audio
+        assert {"word", "meaning", "example1"} <= saved.audio.keys()
+
+
+CardFields = (
+    "word",
+    "pos",
+    "meaning",
+    "sinhala",
+    "example1",
+    "example2",
+    "valid",
+    "deck",
+    "decision",
+)

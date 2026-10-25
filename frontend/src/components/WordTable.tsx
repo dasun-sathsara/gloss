@@ -16,11 +16,51 @@ function AnkiStatus({ noteId }: { noteId: number | null }) {
   );
 }
 
+const clipNames: Record<Clip, string> = {
+  word: "Word",
+  meaning: "Definition",
+  example1: "Example 1",
+  example2: "Example 2",
+};
+
+function AudioCell({ card }: { card: Card }) {
+  const ready = clips.filter((clip) => card.audio[clip]).length;
+  const failed = clips.filter((clip) => !card.audio[clip] && card.audio_errors[clip]);
+  const problem = failed.map((clip) => `${clipNames[clip]}: ${card.audio_errors[clip]}`).join("\n");
+  return (
+    <TableCell className="audio-column" title={problem || undefined}>
+      <span
+        className="audio-count"
+        data-complete={ready === clips.length || undefined}
+        data-failed={failed.length > 0 || undefined}
+        aria-hidden="true"
+      >
+        {ready}/4
+      </span>
+      <span className="audio-meter" aria-hidden="true">
+        {clips.map((clip) => (
+          <span
+            key={clip}
+            data-ready={!!card.audio[clip]}
+            data-failed={(!card.audio[clip] && !!card.audio_errors[clip]) || undefined}
+          />
+        ))}
+      </span>
+      <span className="sr-only">
+        {ready} of 4 audio clips
+        {failed.length ? `. ${failed.length} failed. Open the editor to see why.` : ""}
+      </span>
+    </TableCell>
+  );
+}
+
 export function WordTable({
   cards,
   selected,
   dirty,
   disabled,
+  editDisabled,
+  jobActive,
   library,
   onSelect,
   onSelectAll,
@@ -34,6 +74,8 @@ export function WordTable({
   selected: Set<string>;
   dirty: Set<string>;
   disabled: boolean;
+  editDisabled: boolean;
+  jobActive: boolean;
   library: boolean;
   onSelect: (id: string) => void;
   onSelectAll: (checked: boolean) => void;
@@ -112,23 +154,7 @@ export function WordTable({
                   </p>
                 )}
               </TableCell>
-              <TableCell className="audio-column">
-                <span
-                  className="audio-count"
-                  data-complete={clips.every((clip) => card.audio[clip]) || undefined}
-                  aria-hidden="true"
-                >
-                  {clips.filter((clip) => card.audio[clip]).length}/4
-                </span>
-                <span className="audio-meter" aria-hidden="true">
-                  {clips.map((clip) => (
-                    <span key={clip} data-ready={!!card.audio[clip]} />
-                  ))}
-                </span>
-                <span className="sr-only">
-                  {clips.filter((clip) => card.audio[clip]).length} of 4 audio clips
-                </span>
-              </TableCell>
+              <AudioCell card={card} />
               <TableCell className="status-column">
                 <AnkiStatus noteId={card.note_id} />
               </TableCell>
@@ -140,7 +166,7 @@ export function WordTable({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={disabled}
+                    disabled={editDisabled}
                     onClick={() => setEditing(editing === card.id ? null : card.id)}
                     aria-expanded={editing === card.id}
                     aria-controls={`editor-${card.id}`}
@@ -150,7 +176,7 @@ export function WordTable({
                   <Button
                     variant="ghost"
                     size="sm"
-                    disabled={disabled}
+                    disabled={editDisabled}
                     onClick={() => onRemove(card.id)}
                     className="remove-word"
                   >
@@ -165,7 +191,8 @@ export function WordTable({
                   <WordEditor
                     card={card}
                     dirty={dirty.has(card.id)}
-                    disabled={disabled}
+                    disabled={editDisabled}
+                    jobActive={jobActive}
                     onChange={(patch) => onChange(card.id, patch)}
                     onSave={() => onSave(card)}
                     onRetry={() => onRetry(card)}
