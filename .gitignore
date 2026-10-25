@@ -22,6 +22,7 @@ src/gloss/assets/fonts/_StudioFeixenSansVariable.ttf
 frontend/public/_StudioFeixenSansVariable.ttf
 playwright-report/
 test-results/
+.vitest/
 .DS_Store
 
 gloss-frontend.zip

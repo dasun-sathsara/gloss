@@ -964,11 +964,11 @@ textarea {
   *,
   *::before,
   *::after {
-    /* biome-ignore lint/complexity/noImportantStyles: respect reduced motion across portal animations. */
+    /* respect reduced motion across portal animations. */
     animation-duration: 0.01ms !important;
-    /* biome-ignore lint/complexity/noImportantStyles: prevent repeated animations under reduced motion. */
+    /* prevent repeated animations under reduced motion. */
     animation-iteration-count: 1 !important;
-    /* biome-ignore lint/complexity/noImportantStyles: respect reduced motion across portal animations. */
+    /* respect reduced motion across portal animations. */
     transition-duration: 0.01ms !important;
   }
 }

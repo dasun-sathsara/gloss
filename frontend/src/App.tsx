@@ -148,7 +148,7 @@ export default function App() {
                         !deckMissing
                       ) {
                         event.preventDefault();
-                        g.generate();
+                        void g.generate();
                       }
                     }}
                   />

@@ -10,7 +10,6 @@
     "skipLibCheck": true,
     "allowImportingTsExtensions": true,
     "esModuleInterop": true,
-    "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] },
     "types": ["vite/client", "node"]
   },

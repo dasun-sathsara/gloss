@@ -106,7 +106,7 @@ export async function api<T>(path: string, method = "GET", data?: unknown): Prom
   const response = await fetch(`/api${path}`, {
     method,
     headers: data === undefined ? {} : { "Content-Type": "application/json" },
-    body: data === undefined ? undefined : JSON.stringify(data),
+    ...(data === undefined ? {} : { body: JSON.stringify(data) }),
   });
   if (!response.ok) {
     const value = await response.json().catch(() => ({}));

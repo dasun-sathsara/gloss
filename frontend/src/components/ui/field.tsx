@@ -78,7 +78,7 @@ function Field({
   ...props
 }: React.ComponentProps<"div"> & VariantProps<typeof fieldVariants>) {
   return (
-    // biome-ignore lint/a11y/useSemanticElements: shadcn Field groups a label and control without fieldset semantics.
+    // shadcn Field groups a label and control without fieldset semantics.
     <div
       role="group"
       data-slot="field"

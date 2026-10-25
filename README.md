@@ -84,6 +84,7 @@ uv run pytest
 uv run python scripts/encoder_smoke.py
 cd frontend
 pnpm check
+pnpm test
 pnpm build
 pnpm exec playwright install chromium
 pnpm test:e2e
