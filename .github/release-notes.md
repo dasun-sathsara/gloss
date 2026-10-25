@@ -1,6 +1,6 @@
-Large batches are now reliable and visible. Generation and audio runs report progress, keep the order you entered, and isolate failures so one bad response no longer discards the rest of the batch.
+Audio now records on its own. Gloss records the word, definition, and example clips right after it writes the words, and saving an edit re-records only the changed clip. You can keep editing while audio records. When Google's quota is reached, Gloss waits and retries instead of failing the clips. Prepare audio is only needed to retry clips that still failed.
 
-Other fixes: a renumbered model response can no longer attach a definition to the wrong word; duplicate words that map to one Anki note are surfaced so you can keep both; syncing without complete audio no longer erases audio held only by Anki; a bad update rolls back to the previous release; and an unreadable settings file no longer stops Gloss from starting.
+Other fixes: removed words no longer reappear during a run; unsaved edits are no longer replaced by incoming updates; Cancel responds while Anki is slow; the status bar shows each stage with a progress bar; runs end with a summary; failed clips are marked in red; removing words asks first; and new words join the unsynced words already in the batch. Automatic audio can be turned off in Settings.
 
 Gloss creates English vocabulary cards with Sinhala meanings, examples, and pronunciation audio for Anki.
 
