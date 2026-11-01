@@ -8,9 +8,9 @@ license-files = ["LICENSE"]
 authors = [{name = "Dasun Sathasara"}]
 requires-python = ">=3.13,<3.14"
 dependencies = [
-  "fastapi>=0.115,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1",
-  "pydantic-settings>=2.8,<3", "google-genai>=1.0,<3",
-  "imageio-ffmpeg>=0.6,<1", "json-repair>=0.40,<1", "filelock>=4.0.12,<5",
+  "fastapi>=0.162.0,<1", "uvicorn>=0.34,<1", "httpx>=0.28,<1",
+  "pydantic-settings>=2.16.2,<3", "google-genai>=2.34.0,<3",
+  "imageio-ffmpeg>=0.7.0,<1", "json-repair>=0.64.2,<1", "filelock>=4.2.4,<5",
 ]
 
 [project.scripts]
@@ -31,7 +31,7 @@ exclude = ["src/gloss/assets/fonts/_StudioFeixenSansVariable.ttf", "frontend/pub
 packages = ["src/gloss"]
 
 [dependency-groups]
-dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "respx>=0.22,<1", "ruff>=0.12,<1", "ty==0.0.85"]
+dev = ["pytest>=9.2.0,<10", "pytest-asyncio>=1.4.1,<2", "respx>=0.22,<1", "ruff>=0.17.3,<1", "ty==0.0.94"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
