@@ -508,14 +508,10 @@ html, body {
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  /* Stretch the client's wrapper (#qa, #content) so short cards keep their width. */
+  align-items: stretch;
   justify-content: center;
   box-sizing: border-box;
-  background-color: var(--bg-color);
-  background-image: var(--bg-gradient);
-  background-attachment: scroll;
-  background-repeat: no-repeat;
-  background-size: cover;
   color: var(--text-primary);
   font-family: var(--font-family-primary);
   font-weight: var(--font-weight-normal);
@@ -527,6 +523,25 @@ html, body {
   padding-right: max(1rem, env(safe-area-inset-right));
 }
 
+/* Paint the canvas once, as a viewport-sized layer. A body background follows the
+   document height, so clients that propagate or tile it repeat the gradient. */
+html body.card,
+html .card {
+  background: transparent;
+}
+
+.card::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-color: var(--bg-color);
+  background-image: var(--bg-gradient);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+}
+
 /* Keep Anki's content wrapper inside the viewport, even with long tags/code. */
 .card #qa {
   width: 100%;
@@ -535,6 +550,7 @@ html, body {
 
 .flashcard {
   width: var(--card-max-width);
+  min-width: min(var(--card-max-width), 100%);
   max-width: 100%;
   min-height: var(--card-min-height);
   background-color: var(--card-bg);
