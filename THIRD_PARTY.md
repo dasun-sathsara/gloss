@@ -1,7 +1,7 @@
 # Sources and licenses
 
 - `src/gloss/assets/jade-glass.css` was copied as a base stylesheet from
-  the author's `anki-templates/_themes/jade-glass.css`. Gloss-specific card layout
+  the author's `infra/user/anki-templates/_themes/jade-glass.css`. Gloss-specific card layout
   rules and its copied dark tokens in `src/gloss/assets/vocabulary.css` are appended by
   `gloss.anki.templates.css()`. Gloss adds a quieter dark palette. The shell,
   fonts, stationary glass layer, edge and divider animations, and answer reveal come from
