@@ -10,6 +10,8 @@ import { Input } from "./ui/input";
 export function Settings({
   settings,
   voices,
+  audioProvider,
+  audioVoice,
   configDir,
   anki,
   audioReady,
@@ -19,6 +21,8 @@ export function Settings({
 }: {
   settings: Preferences;
   voices: string[];
+  audioProvider: "demo" | "woof" | "google" | "";
+  audioVoice: string;
   configDir: string;
   anki: AnkiStatus;
   audioReady: boolean;
@@ -74,13 +78,23 @@ export function Settings({
       }}
     >
       <div className="settings-grid">
-        <Choice
-          label="Voice"
-          value={draft.voice}
-          disabled={locked || !audioReady}
-          options={voices.map((value) => ({ value, label: value }))}
-          onChange={(value) => change("voice", value)}
-        />
+        {audioProvider === "woof" ? (
+          <Field className="gap-1.5">
+            <FieldLabel>Local voice</FieldLabel>
+            <p className="help">
+              {audioVoice} (on this computer). Set <code>WOOF_VOICE</code> in the config
+              <code>.env</code> to switch between <code>juno</code> and <code>mira</code>.
+            </p>
+          </Field>
+        ) : (
+          <Choice
+            label="Voice"
+            value={draft.voice}
+            disabled={locked || !audioReady}
+            options={voices.map((value) => ({ value, label: value }))}
+            onChange={(value) => change("voice", value)}
+          />
+        )}
         <Choice
           label="Words per request"
           value={String(draft.batch_size)}
@@ -181,21 +195,34 @@ export function Settings({
         <CollapsibleContent>
           <div className="settings-grid">
             {input("text_model", "Text model")}
-            {input("tts_model", "Speech model")}
-            {input("tts_rpm", "Speech requests per minute", { min: 1, max: 120 })}
-            <Choice
-              label="Concurrent speech requests"
-              value={String(draft.tts_concurrency)}
-              disabled={locked}
-              options={[1, 2, 3].map((value) => ({ value: String(value), label: String(value) }))}
-              onChange={(value) => change("tts_concurrency", Number(value))}
-            />
-            {input("call_budget", "Audio request ceiling per run", { min: 4, max: 1000 })}
-            {input("estimated_usd_per_word", "Estimated USD per word", { min: 0, step: 0.0001 })}
+            {audioProvider !== "woof" && input("tts_model", "Speech model")}
+            {audioProvider !== "woof" &&
+              input("tts_rpm", "Speech requests per minute", { min: 1, max: 120 })}
+            {audioProvider !== "woof" && (
+              <Choice
+                label="Concurrent speech requests"
+                value={String(draft.tts_concurrency)}
+                disabled={locked}
+                options={[1, 2, 3].map((value) => ({
+                  value: String(value),
+                  label: String(value),
+                }))}
+                onChange={(value) => change("tts_concurrency", Number(value))}
+              />
+            )}
+            {input("call_budget", "Audio clip ceiling per run", { min: 4, max: 1000 })}
+            {input(
+              "estimated_usd_per_word",
+              audioProvider === "woof"
+                ? "Estimated USD per word (text only)"
+                : "Estimated USD per word",
+              { min: 0, step: 0.0001 },
+            )}
           </div>
           <p className="help">
-            Changing the voice or speech model clears audio from the editor. Original clips remain
-            cached.
+            {audioProvider === "woof"
+              ? "A local voice ignores the speech model, quota and concurrency settings."
+              : "Changing the voice or speech model clears audio from the editor. Original clips remain cached."}
           </p>
           <p className="config-location">
             Configuration directory: <code>{configDir}</code>

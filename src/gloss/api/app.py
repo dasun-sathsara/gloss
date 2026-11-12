@@ -266,6 +266,16 @@ def create_app(
             if environment.google_cloud_project
             else "",
             "audio_ready": audio_ready(),
+            "audio_provider": "demo"
+            if demo
+            else "woof"
+            if environment.woof_model_dir
+            else "google"
+            if environment.google_cloud_project
+            else "",
+            "audio_voice": environment.woof_voice
+            if environment.woof_model_dir
+            else configuration.preferences.voice,
             "config_dir": str(configuration.directory),
             "demo": demo,
             "fonts_complete": "_StudioFeixenSansVariable.ttf"

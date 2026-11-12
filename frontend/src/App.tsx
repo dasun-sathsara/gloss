@@ -176,7 +176,10 @@ export default function App() {
                       {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
                     </span>
                     {audioReady ? (
-                      <span>~${g.parsed.estimate_usd.toFixed(2)} with audio</span>
+                      <span>
+                        ~${g.parsed.estimate_usd.toFixed(2)}{" "}
+                        {b.audio_provider === "woof" ? "text, audio local" : "with audio"}
+                      </span>
                     ) : (
                       <span>text only, audio off</span>
                     )}
@@ -354,6 +357,8 @@ export default function App() {
         <Settings
           settings={b.settings}
           voices={b.voices}
+          audioProvider={b.audio_provider}
+          audioVoice={b.audio_voice}
           configDir={b.config_dir}
           anki={g.anki}
           busy={g.busy}

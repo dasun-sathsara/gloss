@@ -89,6 +89,8 @@ async def test_bootstrap_reports_audio_ready_with_only_woof(tmp_path):
     ):
         data = (await http.get("/api/bootstrap")).json()
     assert data["audio_ready"] is True
+    assert data["audio_provider"] == "woof"
+    assert data["audio_voice"] == "juno"
     assert data["provider_ready"] is True
     assert data["text_provider"] == "endpoint"
 
@@ -151,3 +153,18 @@ def test_trim_respects_the_peak_ceiling():
     loud = 0.99 * np.ones(24000, dtype=np.float32)
     levelled = woof.trim_and_level(loud)
     assert float(np.abs(levelled).max()) <= woof.PEAK_CEILING + 1e-4
+
+
+async def test_bootstrap_names_the_google_engine(tmp_path):
+    (tmp_path / ".env").write_text("GOOGLE_CLOUD_PROJECT=test-project\n")
+    app = create_app(Configuration(tmp_path))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://127.0.0.1:8766",
+        ) as http,
+    ):
+        data = (await http.get("/api/bootstrap")).json()
+    assert data["audio_provider"] == "google"
+    assert data["audio_ready"] is True

@@ -96,6 +96,8 @@ export interface Bootstrap {
   provider_ready: boolean;
   text_provider: string;
   audio_ready: boolean;
+  audio_provider: "demo" | "woof" | "google" | "";
+  audio_voice: string;
   config_dir: string;
   demo: boolean;
   fonts_complete: boolean;
