@@ -167,7 +167,7 @@ class Configuration:
             self.quarantine_settings(path, exc)
             self.preferences = Preferences(**defaults)
         if self.environment.woof_model_dir:
-            self.preferences.audio_engine = f"woof-{self.environment.woof_voice}-v1"
+            self.preferences.audio_engine = f"woof-{self.environment.woof_voice}-v2"
         else:
             self.preferences.audio_engine = ""
 

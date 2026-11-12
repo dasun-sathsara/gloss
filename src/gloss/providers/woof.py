@@ -18,6 +18,13 @@ from gloss.providers.vertex import encode_mp3
 
 WOOF_VOICES = ("juno", "mira")
 WOOF_SAMPLE_RATE = 24000
+# Woof pads short clips with up to 0.3 s of silence at each end. Keep a small
+# breath around the speech, then even out loudness so cards play at one level.
+LEAD_SECONDS = 0.04
+TAIL_SECONDS = 0.15
+TARGET_RMS = 0.10
+PEAK_CEILING = 0.89
+WOOF_BITRATE = "96k"
 
 
 def load_model(model_dir: Path, voice: str):
@@ -44,6 +51,36 @@ def load_model(model_dir: Path, voice: str):
             "Woof could not load. Check WOOF_MODEL_DIR and that numpy is installed.",
             fatal=True,
         ) from exc
+
+
+def trim_and_level(audio):
+    """Trim Woof's leading and trailing silence, then even out the clip's level."""
+    import numpy as np
+
+    samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    window = max(1, int(0.01 * WOOF_SAMPLE_RATE))
+    if samples.size >= window:
+        frames = samples[: samples.size - samples.size % window].reshape(-1, window)
+        envelope = np.abs(frames).max(axis=1)
+        # Ignore anything 34 dB below the loudest frame, which is room tone in
+        # practice, and keep a short breath around the speech.
+        threshold = max(0.01, float(envelope.max()) * 0.02) if envelope.size else 0.01
+        loud = np.flatnonzero(envelope > threshold)
+        if loud.size:
+            start = max(0, loud[0] * window - int(LEAD_SECONDS * WOOF_SAMPLE_RATE))
+            end = min(
+                samples.size,
+                (loud[-1] + 1) * window + int(TAIL_SECONDS * WOOF_SAMPLE_RATE),
+            )
+            samples = samples[start:end]
+    rms = float(np.sqrt(np.mean(samples**2))) if samples.size else 0.0
+    if rms > 0:
+        gain = TARGET_RMS / rms
+        peak = float(np.abs(samples).max())
+        if peak * gain > PEAK_CEILING:
+            gain = PEAK_CEILING / peak
+        samples = (samples * gain).astype(np.float32)
+    return samples
 
 
 def to_wav_bytes(audio) -> bytes:
@@ -94,4 +131,6 @@ class WoofSynthesizer:
                 raise ProviderError(
                     "Woof could not speak this clip. Retry it.", retryable=True
                 ) from exc
-        return await asyncio.to_thread(lambda: encode_mp3(to_wav_bytes(audio)))
+        return await asyncio.to_thread(
+            lambda: encode_mp3(to_wav_bytes(trim_and_level(audio)), WOOF_BITRATE)
+        )

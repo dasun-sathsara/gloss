@@ -116,7 +116,7 @@ class VertexLanguageModel:
         return parse_generated(response.text or "", entries)
 
 
-def encode_mp3(data: bytes) -> bytes:
+def encode_mp3(data: bytes, bitrate: str = "64k") -> bytes:
     try:
         with wave.open(io.BytesIO(data)) as wav:
             if wav.getnchannels() != 1 or wav.getsampwidth() != 2 or wav.getframerate() != 24000:
@@ -146,7 +146,7 @@ def encode_mp3(data: bytes) -> bytes:
                 "-codec:a",
                 "libmp3lame",
                 "-b:a",
-                "64k",
+                bitrate,
                 "-ar",
                 "24000",
                 "-ac",

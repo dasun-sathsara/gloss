@@ -113,8 +113,8 @@ async def test_synthesizer_serializes_clips(tmp_path, monkeypatch):
 
 def test_clip_key_names_the_local_engine():
     google = Preferences()
-    juno = Preferences(audio_engine="woof-juno-v1")
-    mira = Preferences(audio_engine="woof-mira-v1")
+    juno = Preferences(audio_engine="woof-juno-v2")
+    mira = Preferences(audio_engine="woof-mira-v2")
     assert clip_key(google, "serene") == clip_key(google.model_copy(), "serene")
     assert clip_key(google, "serene") != clip_key(juno, "serene")
     assert clip_key(juno, "serene") != clip_key(mira, "serene")
@@ -123,7 +123,31 @@ def test_clip_key_names_the_local_engine():
 def test_config_selects_the_local_engine(tmp_path):
     (tmp_path / ".env").write_text("WOOF_MODEL_DIR=/models/woof\nWOOF_VOICE=mira\n")
     configuration = Configuration(tmp_path)
-    assert configuration.preferences.audio_engine == "woof-mira-v1"
+    assert configuration.preferences.audio_engine == "woof-mira-v2"
 
     (tmp_path / ".env").write_text("TEXT_API_BASE=https://example.test/v1\n")
     assert Configuration(tmp_path).preferences.audio_engine == ""
+
+
+def test_trim_removes_padding_and_keeps_a_breath():
+    samples = np.zeros(24000, dtype=np.float32)  # 1 s of silence
+    tone = 0.3 * np.sin(2 * np.pi * 220 * np.arange(12000) / 24000)
+    samples[6000:18000] = tone
+    trimmed = woof.trim_and_level(samples)
+    expected = 12000 + int((woof.LEAD_SECONDS + woof.TAIL_SECONDS) * 24000)
+    assert abs(len(trimmed) - expected) <= 240
+    assert abs(trimmed[0]) < 0.05
+
+
+def test_trim_levels_the_clip():
+    quiet = 0.02 * np.sin(2 * np.pi * 220 * np.arange(24000) / 24000)
+    levelled = woof.trim_and_level(quiet)
+    rms = float(np.sqrt(np.mean(levelled**2)))
+    assert abs(rms - woof.TARGET_RMS) < 0.01
+    assert float(np.abs(levelled).max()) <= woof.PEAK_CEILING + 1e-4
+
+
+def test_trim_respects_the_peak_ceiling():
+    loud = 0.99 * np.ones(24000, dtype=np.float32)
+    levelled = woof.trim_and_level(loud)
+    assert float(np.abs(levelled).max()) <= woof.PEAK_CEILING + 1e-4
