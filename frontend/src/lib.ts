@@ -95,6 +95,8 @@ export interface Bootstrap {
   active_job: Job | null;
   provider_ready: boolean;
   text_provider: string;
+  text_health: "off" | "warming" | "ready" | "down";
+  text_health_detail: string;
   audio_ready: boolean;
   audio_provider: "demo" | "woof" | "google" | "";
   audio_voice: string;

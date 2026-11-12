@@ -148,6 +148,16 @@ export function useGloss() {
   }, [job, pending, refreshAnki]);
 
   useEffect(() => {
+    if (bootstrap?.text_health !== "warming") return;
+    const timer = setInterval(() => {
+      api<Bootstrap>("/bootstrap")
+        .then(setBootstrap)
+        .catch(() => {});
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [bootstrap?.text_health]);
+
+  useEffect(() => {
     if (bootstrap) localStorage.setItem("gloss-batch", JSON.stringify([...batchIds]));
   }, [batchIds, bootstrap]);
   useEffect(() => {

@@ -121,6 +121,9 @@ class Environment(BaseSettings):
     # When set, text generation goes here and Google is only used for audio.
     text_api_base: str = ""
     text_api_key: str = ""
+    # Cold starts on a self-hosted router can take a minute. Gloss retries one
+    # timeout, so the worst case is twice this value.
+    text_timeout: float = Field(default=240.0, ge=10, le=900)
     # Optional local audio through Underdog Woof. The weights are downloaded separately
     # and licensed for non-commercial use, so they stay outside the checkout.
     woof_model_dir: str = ""

@@ -81,14 +81,51 @@ def create_app(
     gateway = AnkiGateway(AnkiClient(http, configuration.environment.anki_connect_port), library)
     sync_ticket: dict[str, Any] = {}
     mutation_lock = asyncio.Lock()
+    text_health: dict[str, str] = {"state": "off", "detail": ""}
 
     def unlocked(path: str) -> bool:
         # Parsing changes nothing, and Cancel must never queue behind a slow Anki call.
         return path == "/api/parse" or bool(re.fullmatch(r"/api/jobs/[^/]+/cancel", path))
 
+    async def warm_text() -> None:
+        """Send one tiny completion so a cold router is ready before the user asks."""
+        environment = configuration.environment
+        if not environment.text_api_base or not environment.text_api_key:
+            text_health.update(state="off", detail="")
+            return
+        text_health.update(state="warming", detail="")
+        try:
+            response = await http.post(
+                environment.text_api_base.rstrip("/") + "/chat/completions",
+                json={
+                    "model": configuration.preferences.text_model,
+                    "messages": [{"role": "user", "content": "ok"}],
+                    "max_tokens": 1,
+                    "stream": False,
+                },
+                headers={"Authorization": f"Bearer {environment.text_api_key}"},
+                timeout=environment.text_timeout,
+            )
+        except httpx.HTTPError:
+            text_health.update(state="down", detail="The text endpoint did not answer.")
+            return
+        if response.status_code == 200:
+            text_health.update(state="ready", detail="")
+        elif response.status_code in {401, 403}:
+            text_health.update(state="down", detail="The endpoint rejected the API key.")
+        else:
+            text_health.update(
+                state="down", detail=f"The endpoint returned HTTP {response.status_code}."
+            )
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
+        warm = None if demo else asyncio.create_task(warm_text())
         yield
+        if warm and not warm.done():
+            warm.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await warm
         if jobs.active and jobs.active.task:
             jobs.active.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -184,7 +221,10 @@ def create_app(
         try:
             if environment.text_api_base:
                 text = ChatCompletionsLanguageModel(
-                    environment.text_api_base, environment.text_api_key, preferences
+                    environment.text_api_base,
+                    environment.text_api_key,
+                    preferences,
+                    timeout=environment.text_timeout,
                 )
             elif client:
                 text = VertexLanguageModel(client, preferences)
@@ -250,7 +290,7 @@ def create_app(
         environment = configuration.environment
         return {
             "settings": configuration.preferences,
-            "voices": VOICES,
+            "voices": [] if (not demo and environment.woof_model_dir) else VOICES,
             "cards": cards,
             "card_count": total,
             "library_truncated": total > len(cards),
@@ -265,6 +305,8 @@ def create_app(
             else "google"
             if environment.google_cloud_project
             else "",
+            "text_health": text_health["state"],
+            "text_health_detail": text_health["detail"],
             "audio_ready": audio_ready(),
             "audio_provider": "demo"
             if demo

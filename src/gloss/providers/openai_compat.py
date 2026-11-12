@@ -15,7 +15,7 @@ class ChatCompletionsLanguageModel:
         api_key: str,
         preferences: Preferences,
         max_output_tokens: int = 8192,
-        timeout: float = 120.0,
+        timeout: float = 240.0,
     ):
         if not base_url.startswith(("http://", "https://")):
             raise ProviderError(
@@ -55,21 +55,26 @@ class ChatCompletionsLanguageModel:
                 },
             },
         }
-        try:
-            response = await self.client.post(
-                self.url,
-                json=body,
-                headers={"Authorization": f"Bearer {self.api_key}"},
-            )
-        except httpx.TimeoutException as exc:
-            raise ProviderError(
-                "The text endpoint timed out. Retry this batch.", retryable=True
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise ProviderError(
-                "The text endpoint could not be reached. Check your connection and retry.",
-                retryable=True,
-            ) from exc
+        # A cold router can sit on the first request for a minute. Nothing has been
+        # received yet, so one clean retry is safe; other errors stay immediate.
+        for attempt in range(2):
+            try:
+                response = await self.client.post(
+                    self.url,
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+                break
+            except httpx.TimeoutException as exc:
+                if attempt:
+                    raise ProviderError(
+                        "The text endpoint timed out. Retry this batch.", retryable=True
+                    ) from exc
+            except httpx.HTTPError as exc:
+                raise ProviderError(
+                    "The text endpoint could not be reached. Check your connection and retry.",
+                    retryable=True,
+                ) from exc
 
         status = response.status_code
         if status in {401, 403}:

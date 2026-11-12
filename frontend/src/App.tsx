@@ -170,6 +170,16 @@ export default function App() {
                     </p>
                   </CollapsibleContent>
                 </Collapsible>
+                {b.text_provider === "endpoint" && b.text_health !== "off" && (
+                  <p className={`endpoint-status ${b.text_health}`} role="status">
+                    <span className="endpoint-dot" aria-hidden="true" />
+                    {b.text_health === "ready"
+                      ? "Text endpoint ready"
+                      : b.text_health === "warming"
+                        ? "Warming up the text endpoint"
+                        : b.text_health_detail || "Text endpoint unreachable"}
+                  </p>
+                )}
                 {g.parsed && (
                   <div className="estimate" role="status">
                     <span>
@@ -177,8 +187,9 @@ export default function App() {
                     </span>
                     {audioReady ? (
                       <span>
-                        ~${g.parsed.estimate_usd.toFixed(2)}{" "}
-                        {b.audio_provider === "woof" ? "text, audio local" : "with audio"}
+                        {b.audio_provider === "woof"
+                          ? "audio local"
+                          : `~$${g.parsed.estimate_usd.toFixed(2)} with audio`}
                       </span>
                     ) : (
                       <span>text only, audio off</span>

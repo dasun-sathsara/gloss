@@ -1000,3 +1000,30 @@ textarea {
     transition-duration: 0.01ms !important;
   }
 }
+
+.endpoint-status {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted-foreground, #6b7280);
+}
+
+.endpoint-status .endpoint-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.endpoint-status.ready {
+  color: #2e7d4f;
+}
+
+.endpoint-status.warming {
+  color: #b26a00;
+}
+
+.endpoint-status.down {
+  color: #b3261e;
+}
