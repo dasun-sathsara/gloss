@@ -45,16 +45,20 @@ def backoff(attempt: int, rate_limited: bool) -> float:
 
 
 def clip_key(preferences: Preferences, text: str) -> str:
+    payload = {
+        "model": preferences.tts_model,
+        "voice": preferences.voice,
+        "sample_rate": 24000,
+        "encoding": "mp3-64k-v1",
+        "text": text,
+        "style": "calm-instructional-v1",
+    }
+    if preferences.audio_engine:
+        # A local engine ignores the Google model and voice above, so name it here.
+        payload["engine"] = preferences.audio_engine
     return hashlib.sha256(
         json.dumps(
-            {
-                "model": preferences.tts_model,
-                "voice": preferences.voice,
-                "sample_rate": 24000,
-                "encoding": "mp3-64k-v1",
-                "text": text,
-                "style": "calm-instructional-v1",
-            },
+            payload,
             sort_keys=True,
             ensure_ascii=False,
         ).encode()

@@ -61,6 +61,9 @@ class Preferences(BaseModel):
     seed_decks: list[str] = Field(default_factory=lambda: ["General", "Subject 1", "Subject 2"])
     last_deck: str = ""
     note_type: str = Field(default="Gloss", min_length=1, max_length=80)
+    # Which engine recorded the clips. Empty means the Google voice above; a local
+    # engine carries its name and voice so a different voice invalidates old clips.
+    audio_engine: str = ""
     tts_concurrency: int = Field(default=2, ge=1, le=3)
     tts_rpm: int = Field(default=20, ge=1, le=120)
     call_budget: int = Field(default=400, ge=4, le=1000)
@@ -163,6 +166,10 @@ class Configuration:
         except ValidationError as exc:
             self.quarantine_settings(path, exc)
             self.preferences = Preferences(**defaults)
+        if self.environment.woof_model_dir:
+            self.preferences.audio_engine = f"woof-{self.environment.woof_voice}-v1"
+        else:
+            self.preferences.audio_engine = ""
 
     @staticmethod
     def quarantine_settings(path: Path, exc: Exception) -> None:

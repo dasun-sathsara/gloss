@@ -8,7 +8,8 @@ import numpy as np
 import pytest
 
 from gloss.api.app import create_app
-from gloss.config import Configuration, Environment
+from gloss.config import Configuration, Environment, Preferences
+from gloss.core.orchestrator import clip_key
 from gloss.core.ports import ProviderError
 from gloss.providers import woof
 
@@ -108,3 +109,21 @@ async def test_synthesizer_serializes_clips(tmp_path, monkeypatch):
     synthesizer = woof.WoofSynthesizer(tmp_path)
     await asyncio.gather(synthesizer.synthesize("one"), synthesizer.synthesize("two"))
     assert state["peak"] == 1
+
+
+def test_clip_key_names_the_local_engine():
+    google = Preferences()
+    juno = Preferences(audio_engine="woof-juno-v1")
+    mira = Preferences(audio_engine="woof-mira-v1")
+    assert clip_key(google, "serene") == clip_key(google.model_copy(), "serene")
+    assert clip_key(google, "serene") != clip_key(juno, "serene")
+    assert clip_key(juno, "serene") != clip_key(mira, "serene")
+
+
+def test_config_selects_the_local_engine(tmp_path):
+    (tmp_path / ".env").write_text("WOOF_MODEL_DIR=/models/woof\nWOOF_VOICE=mira\n")
+    configuration = Configuration(tmp_path)
+    assert configuration.preferences.audio_engine == "woof-mira-v1"
+
+    (tmp_path / ".env").write_text("TEXT_API_BASE=https://example.test/v1\n")
+    assert Configuration(tmp_path).preferences.audio_engine == ""
