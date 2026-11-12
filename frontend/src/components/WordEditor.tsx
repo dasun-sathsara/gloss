@@ -18,6 +18,7 @@ export function WordEditor({
   card,
   disabled,
   jobActive,
+  audioReady,
   dirty,
   onChange,
   onSave,
@@ -28,6 +29,7 @@ export function WordEditor({
   card: Card;
   disabled: boolean;
   jobActive: boolean;
+  audioReady: boolean;
   dirty: boolean;
   onChange: (patch: Partial<Card>) => void;
   onSave: () => void;
@@ -85,7 +87,14 @@ export function WordEditor({
               variant="outline"
               size="sm"
               // Playing is always fine. Recording a clip starts a run, so it waits.
-              disabled={disabled || !card.valid || (!card.audio[clip] && jobActive)}
+              disabled={
+                disabled || !card.valid || (!card.audio[clip] && (jobActive || !audioReady))
+              }
+              title={
+                !card.audio[clip] && !audioReady
+                  ? "Audio needs Google Cloud credentials."
+                  : undefined
+              }
               onClick={() => onListen(clip)}
               aria-label={`${card.audio[clip] ? "Play" : "Generate"} ${["word", "definition", "example 1", "example 2"][index]} audio`}
             >

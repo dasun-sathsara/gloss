@@ -23,6 +23,11 @@ Google Application Default Credentials also work. The default models are
 access to those models, billing, and prediction permission. Gloss does not create
 cloud projects, keys, or IAM roles. Generation makes billable API calls.
 
+To write words through an OpenAI-compatible `/chat/completions` endpoint instead, set
+`TEXT_API_BASE` (including `/v1`) and `TEXT_API_KEY` in the private `.env`. Text then
+comes from that endpoint and Google is only used for audio. Without a Google project,
+words still generate and audio stays off.
+
 ## Use
 
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.

@@ -114,6 +114,10 @@ class Environment(BaseSettings):
     google_cloud_project: str = ""
     google_cloud_location: str = "global"
     google_application_credentials: str = ""
+    # OpenAI-compatible text endpoint, for example https://example.modal.run/v1.
+    # When set, text generation goes here and Google is only used for audio.
+    text_api_base: str = ""
+    text_api_key: str = ""
     voice: str = "Kore"
     deck_parent: str = "Gloss"
     deck_default: str = "General"

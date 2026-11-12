@@ -268,7 +268,7 @@ export function useGloss() {
   }, [job, refreshAnki, receiveCard]);
 
   useEffect(() => {
-    if (job || pending || !audioQueue.size) return;
+    if (job || pending || !audioQueue.size || !bootstrap?.audio_ready) return;
     const ids = [...audioQueue].filter((id) => {
       const card = cardsRef.current.find((value) => value.id === id);
       return card && isReady(card) && !hasAudio(card) && !dirtyRef.current.has(id);
@@ -285,7 +285,7 @@ export function useGloss() {
         setError(error instanceof Error ? error.message : "Audio could not start. Try again."),
       )
       .finally(() => setPending(false));
-  }, [job, pending, audioQueue]);
+  }, [job, pending, audioQueue, bootstrap?.audio_ready]);
 
   useEffect(() => {
     if (!job && listenAfter) {
@@ -323,7 +323,12 @@ export function useGloss() {
   /** Save from the editor, then record any clip the edit invalidated. */
   const saveEdit = async (card: Card) => {
     const saved = await saveCard(card);
-    if (bootstrap?.settings.auto_audio && isReady(saved) && !hasAudio(saved))
+    if (
+      bootstrap?.audio_ready &&
+      bootstrap?.settings.auto_audio &&
+      isReady(saved) &&
+      !hasAudio(saved)
+    )
       setAudioQueue((old) => new Set([...old, saved.id]));
   };
   const flush = async () => {
@@ -456,6 +461,8 @@ export function useGloss() {
     perform(async () => {
       const saved = dirty.has(card.id) ? await saveCard(card) : card;
       if (saved.audio[kind]) await new Audio(`/media/${saved.audio[kind]}`).play();
+      else if (!bootstrap?.audio_ready)
+        throw new Error("Audio needs a Google Cloud project and credentials in the config .env.");
       else {
         setListenAfter({ id: card.id, kind });
         setProgress(null);

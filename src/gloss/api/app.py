@@ -25,6 +25,7 @@ from gloss.core.orchestrator import Orchestrator, clip_key
 from gloss.core.parsing import parse_entries
 from gloss.core.ports import ProviderError
 from gloss.library.store import Library
+from gloss.providers.openai_compat import ChatCompletionsLanguageModel
 from gloss.providers.vertex import VertexLanguageModel, VertexSynthesizer, make_client
 
 
@@ -175,17 +176,42 @@ def create_app(
             preferences.tts_rpm = 120
             await operation(job, DemoLanguageModel(), DemoSynthesizer(), preferences)
             return
-        client = make_client(configuration)
+        environment = configuration.environment
+        google = bool(environment.google_cloud_project)
+        client = make_client(configuration) if google else None
+        text: VertexLanguageModel | ChatCompletionsLanguageModel | None = None
         try:
-            await operation(
-                job,
-                VertexLanguageModel(client, preferences),
-                VertexSynthesizer(client, preferences),
-                preferences,
-            )
+            if environment.text_api_base:
+                text = ChatCompletionsLanguageModel(
+                    environment.text_api_base, environment.text_api_key, preferences
+                )
+            elif client:
+                text = VertexLanguageModel(client, preferences)
+            else:
+                raise ProviderError(
+                    "Add TEXT_API_BASE and TEXT_API_KEY, or the Google project and credentials, "
+                    "to the config .env.",
+                    fatal=True,
+                )
+            synth = VertexSynthesizer(client, preferences) if client else None
+            await operation(job, text, synth, preferences)
         finally:
-            await client.aio.aclose()
-            client.close()
+            if isinstance(text, ChatCompletionsLanguageModel):
+                await text.aclose()
+            if client:
+                await client.aio.aclose()
+                client.close()
+
+    def audio_ready() -> bool:
+        return demo or bool(configuration.environment.google_cloud_project)
+
+    def text_ready() -> bool:
+        environment = configuration.environment
+        if demo:
+            return True
+        if environment.text_api_base:
+            return bool(environment.text_api_key)
+        return bool(environment.google_cloud_project)
 
     async def write_cards(
         job: Job,
@@ -199,7 +225,7 @@ def create_app(
         cards = await orchestrator.generate(job, entries, deck, model, preferences, retry_id)
         ready = [card for card in cards if card.ready()]
         summary: dict[str, Any] = {"words": len(cards), "needs_review": len(cards) - len(ready)}
-        if preferences.auto_audio and ready:
+        if preferences.auto_audio and ready and synth is not None:
             summary["audio"] = await orchestrator.audio(job, ready, synth, preferences)
         job.emit("summary", summary)
 
@@ -212,6 +238,7 @@ def create_app(
         active = jobs.active
         cards = [valid_audio(card) for card in library.all()]
         total = library.count()
+        environment = configuration.environment
         return {
             "settings": configuration.preferences,
             "voices": VOICES,
@@ -221,7 +248,15 @@ def create_app(
             "active_job": {"id": active.id, "kind": active.kind, "stage": active.stage}
             if active
             else None,
-            "provider_ready": bool(configuration.environment.google_cloud_project) or demo,
+            "provider_ready": text_ready(),
+            "text_provider": "demo"
+            if demo
+            else "endpoint"
+            if environment.text_api_base
+            else "google"
+            if environment.google_cloud_project
+            else "",
+            "audio_ready": audio_ready(),
             "config_dir": str(configuration.directory),
             "demo": demo,
             "fonts_complete": "_StudioFeixenSansVariable.ttf"
@@ -309,6 +344,10 @@ def create_app(
     @app.post("/api/audio")
     async def audio(selection: Selection):
         idle()
+        if not audio_ready():
+            raise ValueError(
+                "Audio needs a Google Cloud project and credentials in the config .env."
+            )
         cards = [valid_audio(card) for card in selected(selection.ids)]
         if any(not card.ready() for card in cards):
             raise ValueError("Finish or remove invalid cards before generating audio.")

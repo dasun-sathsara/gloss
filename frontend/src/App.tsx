@@ -22,6 +22,7 @@ export default function App() {
         {g.error || "Opening Gloss…"}
       </main>
     );
+  const audioReady = b.audio_ready;
   const parent = `${b.settings.deck_parent}::`;
   const names = g.anki.connected
     ? g.anki.decks
@@ -87,8 +88,9 @@ export default function App() {
         {!b.provider_ready && (
           <Alert>
             <AlertDescription>
-              Add the Google project and service-account credentials in <code>{b.config_dir}</code>,
-              then restart Gloss.
+              Add a text endpoint as <code>TEXT_API_BASE</code> and <code>TEXT_API_KEY</code>, or
+              the Google project and credentials, to the <code>.env</code> in{" "}
+              <code>{b.config_dir}</code>, then restart Gloss.
             </AlertDescription>
           </Alert>
         )}
@@ -173,7 +175,11 @@ export default function App() {
                     <span>
                       {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
                     </span>
-                    <span>~${g.parsed.estimate_usd.toFixed(2)} with audio</span>
+                    {audioReady ? (
+                      <span>~${g.parsed.estimate_usd.toFixed(2)} with audio</span>
+                    ) : (
+                      <span>text only, audio off</span>
+                    )}
                   </div>
                 )}
                 {g.parsed?.entries
@@ -213,11 +219,13 @@ export default function App() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={g.busy || !g.missingCount}
+                  disabled={g.busy || !g.missingCount || !audioReady}
                   title={
-                    g.readySelection.length && !g.missingCount
-                      ? "Audio is ready for the selected words."
-                      : undefined
+                    !audioReady
+                      ? "Audio needs a Google Cloud project and credentials in the config .env."
+                      : g.readySelection.length && !g.missingCount
+                        ? "Audio is ready for the selected words."
+                        : undefined
                   }
                   className="batch-action"
                   onClick={g.audio}
@@ -298,6 +306,7 @@ export default function App() {
                 disabled={g.busy}
                 editDisabled={g.editLocked}
                 jobActive={!!g.job}
+                audioReady={audioReady}
                 library={g.view === "library"}
                 onSelect={(id) =>
                   g.setSelected((old) => {
@@ -348,6 +357,7 @@ export default function App() {
           configDir={b.config_dir}
           anki={g.anki}
           busy={g.busy}
+          audioReady={audioReady}
           onSave={g.saveSettings}
           onAddDeck={async (name) => {
             await api("/anki/decks", "POST", { name });

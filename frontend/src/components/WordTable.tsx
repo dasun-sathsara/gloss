@@ -61,6 +61,7 @@ export function WordTable({
   disabled,
   editDisabled,
   jobActive,
+  audioReady,
   library,
   onSelect,
   onSelectAll,
@@ -76,6 +77,7 @@ export function WordTable({
   disabled: boolean;
   editDisabled: boolean;
   jobActive: boolean;
+  audioReady: boolean;
   library: boolean;
   onSelect: (id: string) => void;
   onSelectAll: (checked: boolean) => void;
@@ -193,6 +195,7 @@ export function WordTable({
                     dirty={dirty.has(card.id)}
                     disabled={editDisabled}
                     jobActive={jobActive}
+                    audioReady={audioReady}
                     onChange={(patch) => onChange(card.id, patch)}
                     onSave={() => onSave(card)}
                     onRetry={() => onRetry(card)}

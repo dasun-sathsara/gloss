@@ -12,6 +12,7 @@ export function Settings({
   voices,
   configDir,
   anki,
+  audioReady,
   onSave,
   onAddDeck,
   busy,
@@ -20,6 +21,7 @@ export function Settings({
   voices: string[];
   configDir: string;
   anki: AnkiStatus;
+  audioReady: boolean;
   onSave: (preferences: Preferences) => Promise<void>;
   onAddDeck: (name: string) => Promise<void>;
   busy: boolean;
@@ -75,7 +77,7 @@ export function Settings({
         <Choice
           label="Voice"
           value={draft.voice}
-          disabled={locked}
+          disabled={locked || !audioReady}
           options={voices.map((value) => ({ value, label: value }))}
           onChange={(value) => change("voice", value)}
         />
@@ -103,13 +105,19 @@ export function Settings({
         <Checkbox
           id="settings-auto_audio"
           checked={draft.auto_audio}
-          disabled={locked}
+          disabled={locked || !audioReady}
           onCheckedChange={(checked) => change("auto_audio", checked === true)}
         />
         <FieldLabel htmlFor="settings-auto_audio">
           Record audio automatically after writing words and saving edits
         </FieldLabel>
       </Field>
+      {!audioReady && (
+        <p className="help">
+          Audio needs a Google Cloud project and credentials in the config <code>.env</code>. Words
+          generate without it.
+        </p>
+      )}
       <section className="settings-section">
         <h3>Anki</h3>
         <div className="settings-grid">

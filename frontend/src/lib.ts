@@ -94,6 +94,8 @@ export interface Bootstrap {
   library_truncated: boolean;
   active_job: Job | null;
   provider_ready: boolean;
+  text_provider: string;
+  audio_ready: boolean;
   config_dir: string;
   demo: boolean;
   fonts_complete: boolean;
