@@ -222,7 +222,7 @@ export default function App() {
                   disabled={g.busy || !g.missingCount || !audioReady}
                   title={
                     !audioReady
-                      ? "Audio needs a Google Cloud project and credentials in the config .env."
+                      ? "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
                       : g.readySelection.length && !g.missingCount
                         ? "Audio is ready for the selected words."
                         : undefined

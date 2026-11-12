@@ -462,7 +462,7 @@ export function useGloss() {
       const saved = dirty.has(card.id) ? await saveCard(card) : card;
       if (saved.audio[kind]) await new Audio(`/media/${saved.audio[kind]}`).play();
       else if (!bootstrap?.audio_ready)
-        throw new Error("Audio needs a Google Cloud project and credentials in the config .env.");
+        throw new Error("Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env.");
       else {
         setListenAfter({ id: card.id, kind });
         setProgress(null);

@@ -30,6 +30,14 @@ comes from that endpoint and Google is only used for audio. Without a Google pro
 words still generate and audio stays off. The text model stays `gemini-3.8-flash` unless
 you change it in Settings, so choose a model the endpoint accepts.
 
+Audio makes four clips per card with Google Cloud by default. To record them on your own
+computer instead, download the two-voice
+[Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) model into a folder
+and set `WOOF_MODEL_DIR` to it in the private `.env`. Set `WOOF_VOICE` to `juno` (default)
+or `mira`. Woof runs on a CPU with numpy and needs no network, so with a text endpoint and
+Woof, Google is not needed at all. Its weights are licensed for non-commercial use, so
+Gloss does not bundle or download them, and the model folder stays outside the checkout.
+
 ## Use
 
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.
@@ -119,6 +127,12 @@ The Windows launcher uses `gloss-frontend.zip` and `gloss-frontend.sha256`.
 
 Gloss uses MIT. Bundled fonts and icons retain their own licenses.
 See [THIRD_PARTY.md](THIRD_PARTY.md) for notices and template provenance.
+
+Voice by Underdog Woof when the local model is selected. Woof's weights are released
+under the Underdog Non-Commercial License 1.0 and are not distributed with Gloss.
+Credit "Underdog Woof" or "underdog.ai" in anything you publish using its audio, and
+show "Voice by Underdog Woof" in any app that uses it. Commercial use needs a separate
+licence from Underdog.
 
 Geist Mono and Noto Sans Sinhala are bundled. Studio Feixen Sans is private and
 excluded from Git and release packages. To use your licensed copy, place it at

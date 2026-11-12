@@ -18,6 +18,15 @@
   by `frontend/scripts/export-card-icons.mjs`; `src/gloss/assets/playback-icons.json` records
   their package version and weight. Copyright (c) 2020 Phosphor Icons; MIT license, retained
   in `src/gloss/assets/licenses/Phosphor-Icons-MIT.txt`.
+- Optional local audio uses [Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof)
+  by Underdog AI (Automaton Research Inc.). The weights are not bundled or downloaded by Gloss;
+  the user supplies the model folder through `WOOF_MODEL_DIR`. Underdog releases Woof under the
+  Underdog Non-Commercial License 1.0: non-commercial use requires the credit "Voice by Underdog
+  Woof" in any app that uses it, credit "Underdog Woof" or "underdog.ai" on published audio, and
+  no training of other speech models on its output. Commercial use needs a licence from Underdog.
+  Woof's audio decoder follows Kyutai's Mimi, and its training data includes LibriTTS-R and
+  Emilia-YODAS; those attributions remain in the model's NOTICE file. The Anki audio clips Gloss
+  writes are covered by the same terms.
 - Components in `frontend/src/components/ui/` come from the official
   [shadcn/ui registry](https://github.com/shadcn-ui/ui), installed with CLI 4.21.4 using the
   New York style and Radix primitives. Local adjustments cover imports, formatting, error keys,

@@ -27,6 +27,7 @@ from gloss.core.ports import ProviderError
 from gloss.library.store import Library
 from gloss.providers.openai_compat import ChatCompletionsLanguageModel
 from gloss.providers.vertex import VertexLanguageModel, VertexSynthesizer, make_client
+from gloss.providers.woof import WoofSynthesizer
 
 
 class Paste(BaseModel):
@@ -193,7 +194,14 @@ def create_app(
                     "to the config .env.",
                     fatal=True,
                 )
-            synth = VertexSynthesizer(client, preferences) if client else None
+            synth = None
+            if environment.woof_model_dir:
+                # Local clips cost nothing and answer to no quota. Keep a small gap so
+                # the progress stream still updates between clips.
+                preferences.tts_rpm = 120
+                synth = WoofSynthesizer(Path(environment.woof_model_dir), environment.woof_voice)
+            elif client:
+                synth = VertexSynthesizer(client, preferences)
             await operation(job, text, synth, preferences)
         finally:
             if isinstance(text, ChatCompletionsLanguageModel):
@@ -203,7 +211,8 @@ def create_app(
                 client.close()
 
     def audio_ready() -> bool:
-        return demo or bool(configuration.environment.google_cloud_project)
+        environment = configuration.environment
+        return demo or bool(environment.google_cloud_project) or bool(environment.woof_model_dir)
 
     def text_ready() -> bool:
         environment = configuration.environment
@@ -346,7 +355,7 @@ def create_app(
         idle()
         if not audio_ready():
             raise ValueError(
-                "Audio needs a Google Cloud project and credentials in the config .env."
+                "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
             )
         cards = [valid_audio(card) for card in selected(selection.ids)]
         if any(not card.ready() for card in cards):

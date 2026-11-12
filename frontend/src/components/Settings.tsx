@@ -114,8 +114,8 @@ export function Settings({
       </Field>
       {!audioReady && (
         <p className="help">
-          Audio needs a Google Cloud project and credentials in the config <code>.env</code>. Words
-          generate without it.
+          Audio needs a Google Cloud project or <code>WOOF_MODEL_DIR</code> in the config
+          <code>.env</code>. Words generate without it.
         </p>
       )}
       <section className="settings-section">

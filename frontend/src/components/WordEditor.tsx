@@ -92,7 +92,7 @@ export function WordEditor({
               }
               title={
                 !card.audio[clip] && !audioReady
-                  ? "Audio needs Google Cloud credentials."
+                  ? "Audio needs Google Cloud credentials or a local Woof model."
                   : undefined
               }
               onClick={() => onListen(clip)}
