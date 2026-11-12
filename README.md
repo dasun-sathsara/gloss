@@ -19,6 +19,11 @@ endpoint, and Google Cloud records the speech.
 AnkiConnect uses port 8765 by default. If your add-on uses another port, set
 `ANKI_CONNECT_PORT` in the private `.env` to match its `webBindPort`.
 
+To do the Windows steps in one go, run `scripts\setup-windows.ps1` in PowerShell. It
+installs Git and uv when missing, clones the latest release, downloads the optional
+local voice, writes the private `.env` and settings, creates a desktop shortcut, and
+lists the Anki steps still needed. Pass `-ApiKey` or paste the key when prompted.
+
 Google Application Default Credentials also work. The default models are
 `gemini-3.8-flash` and `gemini-3.8-flash-tts` on the global endpoint. Your project needs
 access to those models, billing, and prediction permission. Gloss does not create
