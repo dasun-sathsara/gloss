@@ -2,7 +2,8 @@
 
 Gloss creates English vocabulary flashcards with Sinhala meanings, two examples, and
 pronunciation audio. Review and edit the text, prepare audio, then send the cards to Anki.
-The app runs on your computer. Google Cloud handles text and speech generation.
+The app runs on your computer. Words come from Google or any OpenAI-compatible
+endpoint, and Google Cloud records the speech.
 
 ## Windows setup
 
@@ -26,7 +27,8 @@ cloud projects, keys, or IAM roles. Generation makes billable API calls.
 To write words through an OpenAI-compatible `/chat/completions` endpoint instead, set
 `TEXT_API_BASE` (including `/v1`) and `TEXT_API_KEY` in the private `.env`. Text then
 comes from that endpoint and Google is only used for audio. Without a Google project,
-words still generate and audio stays off.
+words still generate and audio stays off. The text model stays `gemini-3.8-flash` unless
+you change it in Settings, so choose a model the endpoint accepts.
 
 ## Use
 
