@@ -37,41 +37,7 @@ async def test_generation_salvages_batch_and_retries_only_missing(library, prefe
     assert progress[-1]["data"] == {"stage": "text", "completed": 2, "total": 2}
 
 
-def generated(entry: Entry) -> Generated:
-    return Generated(
-        index=entry.index,
-        valid=True,
-        word=entry.word,
-        pos="noun",
-        meaning="A meaning.",
-        sinhala="අර්ථය",
-        example1="One example.",
-        example2="Another example.",
-    )
-
-
-async def test_failed_batch_is_retried_in_pairs_before_cards_are_invalidated(library, preferences):
-    calls = []
-
-    class Waking:
-        async def generate(self, entries):
-            calls.append([entry.index for entry in entries])
-            if len(entries) > 2:
-                raise ProviderError(
-                    "The text endpoint timed out. Retry this batch.", retryable=True
-                )
-            return [generated(entry) for entry in entries]
-
-    entries = [Entry(index=index, word=f"word{index}") for index in range(5)]
-    cards = await Orchestrator(library).generate(
-        Job("text"), entries, "Gloss::General", Waking(), preferences
-    )
-    assert calls == [[0, 1, 2, 3, 4], [0, 1], [2, 3], [4]]
-    assert [card.word for card in cards] == [entry.word for entry in entries]
-    assert all(card.reason == "" for card in cards)
-
-
-async def test_pairs_that_still_fail_only_invalidate_their_own_words(library, preferences):
+async def test_failed_batch_is_retried_in_pairs_and_isolates_failures(library, preferences):
     calls = []
 
     class HalfBroken:
@@ -79,14 +45,27 @@ async def test_pairs_that_still_fail_only_invalidate_their_own_words(library, pr
             calls.append([entry.index for entry in entries])
             if len(entries) > 2 or entries[0].index == 2:
                 raise ProviderError("The endpoint is down.")
-            return [generated(entry) for entry in entries]
+            return [
+                Generated(
+                    index=entry.index,
+                    valid=True,
+                    word=entry.word,
+                    pos="noun",
+                    meaning="A meaning.",
+                    sinhala="අර්ථය",
+                    example1="One example.",
+                    example2="Another example.",
+                )
+                for entry in entries
+            ]
 
-    entries = [Entry(index=index, word=f"word{index}") for index in range(4)]
+    entries = [Entry(index=index, word=f"word{index}") for index in range(5)]
     cards = await Orchestrator(library).generate(
         Job("text"), entries, "Gloss::General", HalfBroken(), preferences
     )
-    assert calls == [[0, 1, 2, 3], [0, 1], [2, 3]]
-    assert [card.valid for card in cards] == [True, True, False, False]
+    assert calls == [[0, 1, 2, 3, 4], [0, 1], [2, 3], [4]]
+    assert [card.word for card in cards] == [entry.word for entry in entries]
+    assert [card.valid for card in cards] == [True, True, False, False, True]
     assert cards[2].reason == "The endpoint is down."
 
 

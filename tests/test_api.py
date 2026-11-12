@@ -205,16 +205,16 @@ CardFields = (
 )
 
 
-async def test_bootstrap_with_woof_reports_local_audio_and_no_text_endpoint(tmp_path):
-    configuration = configured(
-        tmp_path,
+async def test_bootstrap_reports_provider_and_audio_for_woof_and_google(tmp_path):
+    woof = configured(
+        tmp_path / "woof-home",
         google_cloud_project="",
         text_api_base="",
         text_api_key="",
         woof_model_dir=str(tmp_path / "woof"),
         woof_voice="juno",
     )
-    app = create_app(configuration)
+    app = create_app(woof)
     async with app.router.lifespan_context(app), client(app) as http:
         data = (await http.get("/api/bootstrap")).json()
     assert data["text_provider"] == ""
@@ -223,62 +223,33 @@ async def test_bootstrap_with_woof_reports_local_audio_and_no_text_endpoint(tmp_
     assert data["audio_provider"] == "woof"
     assert data["audio_voice"] == "juno"
     assert data["audio_ready"] is True
-    # A local voice has no Google voice list to offer.
     assert data["voices"] == []
 
-
-async def test_bootstrap_with_google_reports_google_for_text_and_audio(tmp_path):
-    configuration = configured(
-        tmp_path,
+    google = configured(
+        tmp_path / "google-home",
         google_cloud_project="demo-project",
         text_api_base="",
         text_api_key="",
         woof_model_dir="",
     )
-    app = create_app(configuration)
+    app = create_app(google)
     async with app.router.lifespan_context(app), client(app) as http:
         data = (await http.get("/api/bootstrap")).json()
     assert data["text_provider"] == "google"
     assert data["text_health"] == "off"
     assert data["provider_ready"] is True
     assert data["audio_provider"] == "google"
-    assert data["audio_voice"] == configuration.preferences.voice
+    assert data["audio_voice"] == google.preferences.voice
     assert data["voices"] == list(VOICES)
 
 
-async def test_bootstrap_warms_the_endpoint_before_reporting_ready(tmp_path):
+async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path):
     configuration = configured(
-        tmp_path,
+        tmp_path / "ready",
         google_cloud_project="",
         text_api_base="https://proxy.example/v1",
         text_api_key="sk-test",
         woof_model_dir=str(tmp_path / "woof"),
-    )
-    with respx.mock(base_url="https://proxy.example") as router:
-        route = router.post("/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json={"choices": []})
-        )
-        app = create_app(configuration)
-        async with app.router.lifespan_context(app), client(app) as http:
-            data = await settled(http)
-    assert data["text_health"] == "ready"
-    assert data["text_health_detail"] == ""
-    assert data["text_provider"] == "endpoint"
-    assert data["audio_provider"] == "woof"
-    assert data["voices"] == []
-    body = json.loads(route.calls[0].request.content)
-    assert body["max_tokens"] == 1
-    assert body["model"] == "gemini-3.8-flash"
-    assert route.calls[0].request.headers["authorization"] == "Bearer sk-test"
-
-
-async def test_bootstrap_warm_up_retries_a_proxy_redirect(tmp_path):
-    configuration = configured(
-        tmp_path,
-        google_cloud_project="",
-        text_api_base="https://proxy.example/v1",
-        text_api_key="sk-test",
-        woof_model_dir="",
     )
     with respx.mock(base_url="https://proxy.example") as router:
         route = router.post("/v1/chat/completions").mock(
@@ -291,12 +262,18 @@ async def test_bootstrap_warm_up_retries_a_proxy_redirect(tmp_path):
         async with app.router.lifespan_context(app), client(app) as http:
             data = await settled(http)
     assert data["text_health"] == "ready"
+    assert data["text_health_detail"] == ""
+    assert data["text_provider"] == "endpoint"
+    assert data["audio_provider"] == "woof"
+    assert data["voices"] == []
     assert route.call_count == 2
+    body = json.loads(route.calls[0].request.content)
+    assert body["max_tokens"] == 1
+    assert body["model"] == "gemini-3.8-flash"
+    assert route.calls[0].request.headers["authorization"] == "Bearer sk-test"
 
-
-async def test_bootstrap_reports_an_endpoint_that_stays_down(tmp_path):
-    configuration = configured(
-        tmp_path,
+    down = configured(
+        tmp_path / "down",
         google_cloud_project="",
         text_api_base="https://proxy.example/v1",
         text_api_key="sk-test",
@@ -304,7 +281,7 @@ async def test_bootstrap_reports_an_endpoint_that_stays_down(tmp_path):
     )
     with respx.mock(base_url="https://proxy.example") as router:
         router.post("/v1/chat/completions").mock(return_value=httpx.Response(503))
-        app = create_app(configuration)
+        app = create_app(down)
         async with app.router.lifespan_context(app), client(app) as http:
             data = await settled(http)
     assert data["text_health"] == "down"
