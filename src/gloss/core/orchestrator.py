@@ -168,37 +168,45 @@ class Orchestrator:
                     return found, ""
             return None, "The response was incomplete. Retry this entry."
 
+        async def fetch(items: list[Entry]) -> list[tuple[Entry, Generated | None, str]]:
+            # A batch that fails after the provider's own retry is worth splitting:
+            # a cold endpoint can serve two words when it cannot serve five, and a
+            # smaller request must not cost the user every card in the batch.
+            try:
+                async with self.outstanding:
+                    results = await model.generate(items)
+            except ProviderError as exc:
+                if exc.fatal:
+                    raise
+                if len(items) > 2:
+                    logger.warning(
+                        "Text batch of %d failed, retrying in pairs: %s", len(items), exc
+                    )
+                    outcomes: list[tuple[Entry, Generated | None, str]] = []
+                    for start in range(0, len(items), 2):
+                        outcomes.extend(await fetch(items[start : start + 2]))
+                    return outcomes
+                return [(entry, None, str(exc)) for entry in items]
+            except Exception:
+                # One malformed response must not discard the other batches.
+                logger.exception("Text generation failed for a batch")
+                return [(entry, None, "This batch failed. Retry these words.") for entry in items]
+            received = (
+                {item.index: item for item in results} if isinstance(results, (list, tuple)) else {}
+            )
+            outcomes = []
+            for entry in items:
+                item = received.get(entry.index)
+                if item is None:
+                    item, reason = await repair(entry)
+                else:
+                    reason = ""
+                outcomes.append((entry, item, reason))
+            return outcomes
+
         async def batch(items: list[Entry]) -> None:
             async with semaphore:
-                try:
-                    async with self.outstanding:
-                        results = await model.generate(items)
-                except ProviderError as exc:
-                    if exc.fatal:
-                        raise
-                    reason = str(exc)
-                    for entry in items:
-                        await publish(entry, fallback(entry, reason))
-                    return
-                except Exception:
-                    # One malformed response must not discard the other batches.
-                    logger.exception("Text generation failed for a batch")
-                    for entry in items:
-                        await publish(
-                            entry, fallback(entry, "This batch failed. Retry these words.")
-                        )
-                    return
-                received = (
-                    {item.index: item for item in results}
-                    if isinstance(results, (list, tuple))
-                    else {}
-                )
-                for entry in items:
-                    item = received.get(entry.index)
-                    if item is None:
-                        item, reason = await repair(entry)
-                    else:
-                        reason = ""
+                for entry, item, reason in await fetch(items):
                     card = build(entry, item) if item is not None else fallback(entry, reason)
                     await publish(entry, card)
 

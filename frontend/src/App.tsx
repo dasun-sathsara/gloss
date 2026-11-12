@@ -1,6 +1,7 @@
 import { Choice } from "./components/Choice";
 import { Modal } from "./components/Modal";
 import { Settings } from "./components/Settings";
+import { Spinner } from "./components/Spinner";
 import { Alert, AlertDescription } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
@@ -18,11 +19,24 @@ export default function App() {
   const b = g.bootstrap;
   if (!b)
     return (
-      <main className="loading-screen" role="status">
-        {g.error || "Opening Gloss…"}
+      <main className="loading-screen" role="status" aria-live="polite">
+        {g.error ? (
+          g.error
+        ) : (
+          <>
+            <Spinner />
+            <span>Opening Gloss…</span>
+          </>
+        )}
       </main>
     );
   const audioReady = b.audio_ready;
+  // Local audio is free, so a batch that costs words only should not quote dollars.
+  const costNote = !audioReady
+    ? "Words generate without audio."
+    : b.audio_provider === "woof"
+      ? "Local audio adds no speech cost."
+      : `Estimated cost with audio: $${(g.parsed?.estimate_usd ?? 0).toFixed(2)}.`;
   const parent = `${b.settings.deck_parent}::`;
   const names = g.anki.connected
     ? g.anki.decks
@@ -207,8 +221,10 @@ export default function App() {
               <Button
                 className="generate-button"
                 disabled={g.busy || !g.parsed?.count || !b.provider_ready || !g.deck || deckMissing}
+                aria-busy={g.job?.kind === "text" || undefined}
                 onClick={() => g.generate()}
               >
+                {g.job?.kind === "text" && <Spinner />}
                 {g.job?.kind === "text" ? "Generating…" : "Generate"}
               </Button>
             </section>
@@ -274,9 +290,11 @@ export default function App() {
                 className="job-status"
                 role="status"
                 aria-live="polite"
+                aria-busy="true"
                 data-determinate={g.progress?.total ? true : undefined}
               >
                 <span className="job-label">
+                  <Spinner className="job-spinner" />
                   <span>
                     {g.job.kind === "sync"
                       ? "Saving notes in Anki…"
@@ -352,13 +370,18 @@ export default function App() {
               />
             ) : (
               <p className="empty-state">
-                {g.search
-                  ? "No matching words."
-                  : g.job
-                    ? "Waiting for words…"
-                    : g.view === "review"
-                      ? "No words in this batch."
-                      : "No saved words."}
+                {g.search ? (
+                  "No matching words."
+                ) : g.job ? (
+                  <>
+                    <Spinner />
+                    <span>Waiting for words…</span>
+                  </>
+                ) : g.view === "review" ? (
+                  "No words in this batch."
+                ) : (
+                  "No saved words."
+                )}
               </p>
             )}
           </section>
@@ -480,8 +503,7 @@ export default function App() {
       </Modal>
       <Modal title="Generate a larger batch?" open={g.confirmCap} onOpenChange={g.setConfirmCap}>
         <p>
-          {g.parsed?.count} words exceeds your cap of {b.settings.word_cap}. Estimated cost with
-          audio: ${g.parsed?.estimate_usd.toFixed(2)}.
+          {g.parsed?.count} words exceeds your cap of {b.settings.word_cap}. {costNote}
         </p>
         <div className="dialog-footer">
           <Button variant="outline" onClick={() => g.setConfirmCap(false)}>

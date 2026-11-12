@@ -94,21 +94,28 @@ def create_app(
             text_health.update(state="off", detail="")
             return
         text_health.update(state="warming", detail="")
-        try:
-            response = await http.post(
-                environment.text_api_base.rstrip("/") + "/chat/completions",
-                json={
-                    "model": configuration.preferences.text_model,
-                    "messages": [{"role": "user", "content": "ok"}],
-                    "max_tokens": 1,
-                    "stream": False,
-                },
-                headers={"Authorization": f"Bearer {environment.text_api_key}"},
-                timeout=environment.text_timeout,
-            )
-        except httpx.HTTPError:
-            text_health.update(state="down", detail="The text endpoint did not answer.")
-            return
+        response: httpx.Response | None = None
+        for attempt in range(2):
+            try:
+                response = await http.post(
+                    environment.text_api_base.rstrip("/") + "/chat/completions",
+                    json={
+                        "model": configuration.preferences.text_model,
+                        "messages": [{"role": "user", "content": "ok"}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    },
+                    headers={"Authorization": f"Bearer {environment.text_api_key}"},
+                    timeout=environment.text_timeout,
+                )
+            except httpx.HTTPError:
+                text_health.update(state="down", detail="The text endpoint did not answer.")
+                return
+            if 300 <= response.status_code < 400 and not attempt:
+                # The proxy redirects while the container wakes; try once more.
+                continue
+            break
+        assert response is not None
         if response.status_code == 200:
             text_health.update(state="ready", detail="")
         elif response.status_code in {401, 403}:

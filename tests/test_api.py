@@ -1,10 +1,37 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import httpx
+import respx
 
 from gloss.api.app import create_app
-from gloss.config import Configuration
+from gloss.config import VOICES, Configuration
+
+
+def configured(tmp_path, **environment) -> Configuration:
+    """A real Environment, with values fixed instead of read from the machine."""
+    configuration = Configuration(tmp_path)
+    for key, value in environment.items():
+        setattr(configuration.environment, key, value)
+    return configuration
+
+
+def client(app) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://127.0.0.1:8766",
+    )
+
+
+async def settled(http: httpx.AsyncClient) -> dict:
+    """Bootstrap once the startup warm-up has finished, whichever way it went."""
+    for _ in range(400):
+        data = (await http.get("/api/bootstrap")).json()
+        if data["text_health"] in {"ready", "down"}:
+            return data
+        await asyncio.sleep(0.01)
+    raise AssertionError("The text endpoint never settled.")
 
 
 async def test_local_security_and_full_offline_workflow(tmp_path):
@@ -176,3 +203,109 @@ CardFields = (
     "deck",
     "decision",
 )
+
+
+async def test_bootstrap_with_woof_reports_local_audio_and_no_text_endpoint(tmp_path):
+    configuration = configured(
+        tmp_path,
+        google_cloud_project="",
+        text_api_base="",
+        text_api_key="",
+        woof_model_dir=str(tmp_path / "woof"),
+        woof_voice="juno",
+    )
+    app = create_app(configuration)
+    async with app.router.lifespan_context(app), client(app) as http:
+        data = (await http.get("/api/bootstrap")).json()
+    assert data["text_provider"] == ""
+    assert data["text_health"] == "off"
+    assert data["provider_ready"] is False
+    assert data["audio_provider"] == "woof"
+    assert data["audio_voice"] == "juno"
+    assert data["audio_ready"] is True
+    # A local voice has no Google voice list to offer.
+    assert data["voices"] == []
+
+
+async def test_bootstrap_with_google_reports_google_for_text_and_audio(tmp_path):
+    configuration = configured(
+        tmp_path,
+        google_cloud_project="demo-project",
+        text_api_base="",
+        text_api_key="",
+        woof_model_dir="",
+    )
+    app = create_app(configuration)
+    async with app.router.lifespan_context(app), client(app) as http:
+        data = (await http.get("/api/bootstrap")).json()
+    assert data["text_provider"] == "google"
+    assert data["text_health"] == "off"
+    assert data["provider_ready"] is True
+    assert data["audio_provider"] == "google"
+    assert data["audio_voice"] == configuration.preferences.voice
+    assert data["voices"] == list(VOICES)
+
+
+async def test_bootstrap_warms_the_endpoint_before_reporting_ready(tmp_path):
+    configuration = configured(
+        tmp_path,
+        google_cloud_project="",
+        text_api_base="https://proxy.example/v1",
+        text_api_key="sk-test",
+        woof_model_dir=str(tmp_path / "woof"),
+    )
+    with respx.mock(base_url="https://proxy.example") as router:
+        route = router.post("/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json={"choices": []})
+        )
+        app = create_app(configuration)
+        async with app.router.lifespan_context(app), client(app) as http:
+            data = await settled(http)
+    assert data["text_health"] == "ready"
+    assert data["text_health_detail"] == ""
+    assert data["text_provider"] == "endpoint"
+    assert data["audio_provider"] == "woof"
+    assert data["voices"] == []
+    body = json.loads(route.calls[0].request.content)
+    assert body["max_tokens"] == 1
+    assert body["model"] == "gemini-3.8-flash"
+    assert route.calls[0].request.headers["authorization"] == "Bearer sk-test"
+
+
+async def test_bootstrap_warm_up_retries_a_proxy_redirect(tmp_path):
+    configuration = configured(
+        tmp_path,
+        google_cloud_project="",
+        text_api_base="https://proxy.example/v1",
+        text_api_key="sk-test",
+        woof_model_dir="",
+    )
+    with respx.mock(base_url="https://proxy.example") as router:
+        route = router.post("/v1/chat/completions").mock(
+            side_effect=[
+                httpx.Response(303, headers={"location": "https://wake.example/"}),
+                httpx.Response(200, json={"choices": []}),
+            ]
+        )
+        app = create_app(configuration)
+        async with app.router.lifespan_context(app), client(app) as http:
+            data = await settled(http)
+    assert data["text_health"] == "ready"
+    assert route.call_count == 2
+
+
+async def test_bootstrap_reports_an_endpoint_that_stays_down(tmp_path):
+    configuration = configured(
+        tmp_path,
+        google_cloud_project="",
+        text_api_base="https://proxy.example/v1",
+        text_api_key="sk-test",
+        woof_model_dir="",
+    )
+    with respx.mock(base_url="https://proxy.example") as router:
+        router.post("/v1/chat/completions").mock(return_value=httpx.Response(503))
+        app = create_app(configuration)
+        async with app.router.lifespan_context(app), client(app) as http:
+            data = await settled(http)
+    assert data["text_health"] == "down"
+    assert "503" in data["text_health_detail"]

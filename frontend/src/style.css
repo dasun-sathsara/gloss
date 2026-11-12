@@ -408,6 +408,12 @@ button[data-slot="collapsible-trigger"][data-state="open"] > svg {
   text-align: center;
   color: var(--muted-foreground);
 }
+.empty-state:has(.spinner) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
 .word-table .editor-row td {
   padding: 1.25rem;
   background: var(--card);
@@ -535,7 +541,23 @@ button[data-slot="collapsible-trigger"][data-state="open"] > svg {
   margin: 0.5rem 0;
 }
 .loading-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 100vh;
   padding: 3rem;
+  color: var(--muted-foreground);
+}
+.spinner {
+  display: inline-block;
+  inline-size: 1em;
+  block-size: 1em;
+  border: 2px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 999px;
+  animation: spin 700ms linear infinite;
+  flex: none;
 }
 
 ::selection {
@@ -701,6 +723,9 @@ textarea {
 .add-deck > [data-slot="field"] {
   min-width: 0;
 }
+.settings-note {
+  grid-column: 1 / -1;
+}
 .job-status {
   position: relative;
   overflow: hidden;
@@ -732,6 +757,15 @@ textarea {
   align-items: baseline;
   column-gap: 0.75rem;
   min-width: 0;
+}
+.job-label:has(.job-spinner) {
+  align-items: center;
+  column-gap: 0.5rem;
+}
+.job-spinner {
+  inline-size: 0.85em;
+  block-size: 0.85em;
+  color: var(--primary);
 }
 .job-hint {
   color: var(--muted-foreground);
@@ -836,6 +870,11 @@ textarea {
   }
   to {
     transform: translateX(390%);
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -1007,6 +1046,7 @@ textarea {
   gap: 0.4rem;
   font-size: 0.78rem;
   color: var(--muted-foreground, #6b7280);
+  transition: color 200ms var(--ease-feedback);
 }
 
 .endpoint-status .endpoint-dot {
@@ -1014,6 +1054,7 @@ textarea {
   height: 0.45rem;
   border-radius: 999px;
   background: currentColor;
+  flex: none;
 }
 
 .endpoint-status.ready {
@@ -1024,6 +1065,22 @@ textarea {
   color: #b26a00;
 }
 
+.endpoint-status.warming .endpoint-dot {
+  animation: endpoint-pulse 1.2s ease-in-out infinite;
+}
+
 .endpoint-status.down {
   color: #b3261e;
+}
+
+@keyframes endpoint-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
 }

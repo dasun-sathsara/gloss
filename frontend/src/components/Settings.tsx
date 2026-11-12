@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AnkiStatus, Preferences } from "../lib";
 import { Choice } from "./Choice";
+import { Spinner } from "./Spinner";
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
@@ -79,11 +80,11 @@ export function Settings({
     >
       <div className="settings-grid">
         {audioProvider === "woof" ? (
-          <Field className="gap-1.5">
-            <FieldLabel>Local voice</FieldLabel>
+          <Field className="gap-1.5 settings-note">
+            <FieldLabel>Audio</FieldLabel>
             <p className="help">
-              {audioVoice} (on this computer). Set <code>WOOF_VOICE</code> in the config
-              <code>.env</code> to switch between <code>juno</code> and <code>mira</code>.
+              Local (Woof), voice <strong>{audioVoice}</strong>. Set <code>WOOF_VOICE</code> in the
+              config <code>.env</code> to switch between <code>juno</code> and <code>mira</code>.
             </p>
           </Field>
         ) : (
@@ -211,17 +212,15 @@ export function Settings({
               />
             )}
             {input("call_budget", "Audio clip ceiling per run", { min: 4, max: 1000 })}
-            {input(
-              "estimated_usd_per_word",
-              audioProvider === "woof"
-                ? "Estimated USD per word (text only)"
-                : "Estimated USD per word",
-              { min: 0, step: 0.0001 },
-            )}
+            {audioProvider !== "woof" &&
+              input("estimated_usd_per_word", "Estimated USD per word", {
+                min: 0,
+                step: 0.0001,
+              })}
           </div>
           <p className="help">
             {audioProvider === "woof"
-              ? "A local voice ignores the speech model, quota and concurrency settings."
+              ? "A local voice ignores the speech model, quota and concurrency settings, and its clips cost nothing."
               : "Changing the voice or speech model clears audio from the editor. Original clips remain cached."}
           </p>
           <p className="config-location">
@@ -235,7 +234,8 @@ export function Settings({
         </p>
       )}
       <div className="dialog-footer">
-        <Button type="submit" disabled={locked}>
+        <Button type="submit" disabled={locked} aria-busy={saving || undefined}>
+          {saving && <Spinner />}
           {saving ? "Saving…" : "Save settings"}
         </Button>
       </div>

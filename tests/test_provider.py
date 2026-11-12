@@ -106,6 +106,54 @@ async def test_rate_limit_and_server_errors_recover():
     assert not broken.value.fatal
 
 
+async def test_timeout_then_success_retries_once():
+    with respx.mock(base_url=BASE) as router:
+        route = router.post("/chat/completions").mock(
+            side_effect=[httpx.ReadTimeout("cold start"), httpx.Response(200, json=reply())]
+        )
+        value = model()
+        try:
+            results = await value.generate([ENTRY])
+        finally:
+            await value.aclose()
+    assert results[0].word == "serendipity"
+    assert route.call_count == 2
+
+
+async def test_redirect_then_success_retries_once():
+    with respx.mock(base_url=BASE) as router:
+        route = router.post("/chat/completions").mock(
+            side_effect=[
+                httpx.Response(303, headers={"location": "https://wake.example/"}),
+                httpx.Response(200, json=reply()),
+            ]
+        )
+        value = model()
+        try:
+            results = await value.generate([ENTRY])
+        finally:
+            await value.aclose()
+    assert results[0].word == "serendipity"
+    assert route.call_count == 2
+
+
+async def test_two_redirects_still_fail():
+    with respx.mock(base_url=BASE) as router:
+        router.post("/chat/completions").mock(
+            side_effect=[
+                httpx.Response(303, headers={"location": "https://wake.example/"}),
+                httpx.Response(307, headers={"location": "https://wake.example/"}),
+            ]
+        )
+        value = model()
+        try:
+            with pytest.raises(ProviderError) as caught:
+                await value.generate([ENTRY])
+        finally:
+            await value.aclose()
+    assert not caught.value.fatal
+
+
 async def test_timeout_is_retryable():
     with respx.mock(base_url=BASE) as router:
         router.post("/chat/completions").mock(side_effect=httpx.ReadTimeout("slow"))

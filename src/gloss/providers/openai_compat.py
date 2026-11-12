@@ -40,6 +40,33 @@ class ChatCompletionsLanguageModel:
     async def aclose(self) -> None:
         await self.client.aclose()
 
+    async def _post(self, body: dict) -> httpx.Response:
+        # A cold router can sit on the first request for a minute, and its proxy
+        # sometimes answers with a redirect while the container wakes. Nothing has
+        # been received yet, so one clean retry is safe; other errors stay immediate.
+        for attempt in range(2):
+            try:
+                response = await self.client.post(
+                    self.url,
+                    json=body,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+            except httpx.TimeoutException as exc:
+                if attempt:
+                    raise ProviderError(
+                        "The text endpoint timed out. Retry this batch.", retryable=True
+                    ) from exc
+                continue
+            except httpx.HTTPError as exc:
+                raise ProviderError(
+                    "The text endpoint could not be reached. Check your connection and retry.",
+                    retryable=True,
+                ) from exc
+            if 300 <= response.status_code < 400 and not attempt:
+                continue
+            return response
+        raise AssertionError("unreachable")
+
     async def generate(self, entries: list[Entry]) -> list[Generated]:
         body = {
             "model": self.model,
@@ -55,27 +82,7 @@ class ChatCompletionsLanguageModel:
                 },
             },
         }
-        # A cold router can sit on the first request for a minute. Nothing has been
-        # received yet, so one clean retry is safe; other errors stay immediate.
-        for attempt in range(2):
-            try:
-                response = await self.client.post(
-                    self.url,
-                    json=body,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                )
-                break
-            except httpx.TimeoutException as exc:
-                if attempt:
-                    raise ProviderError(
-                        "The text endpoint timed out. Retry this batch.", retryable=True
-                    ) from exc
-            except httpx.HTTPError as exc:
-                raise ProviderError(
-                    "The text endpoint could not be reached. Check your connection and retry.",
-                    retryable=True,
-                ) from exc
-
+        response = await self._post(body)
         status = response.status_code
         if status in {401, 403}:
             raise ProviderError(
