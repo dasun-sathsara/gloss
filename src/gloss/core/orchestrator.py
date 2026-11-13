@@ -234,21 +234,25 @@ class Orchestrator:
         async with lock:
             if filename := self.library.clip(key):
                 return filename
-            if self.rate is None or self.rate_rpm != preferences.tts_rpm:
-                self.rate = RateLimiter(preferences.tts_rpm)
-                self.rate_rpm = preferences.tts_rpm
+            if preferences.tts_rpm > 0:
+                if self.rate is None or self.rate_rpm != preferences.tts_rpm:
+                    self.rate = RateLimiter(preferences.tts_rpm)
+                    self.rate_rpm = preferences.tts_rpm
+            else:
+                self.rate = None
+                self.rate_rpm = 0
             for attempt in range(CLIP_ATTEMPTS):
-                await self.rate.acquire()
+                if self.rate is not None:
+                    await self.rate.acquire()
                 spend()
                 try:
-                    async with self.outstanding:
-                        data = await synth.synthesize(text)
+                    data = await synth.synthesize(text)
                     return self.library.save_clip(key, data)
                 except ProviderError as exc:
                     if not exc.retryable or attempt == CLIP_ATTEMPTS - 1:
                         raise
                     delay = backoff(attempt, exc.rate_limited)
-                    if exc.rate_limited:
+                    if exc.rate_limited and self.rate is not None:
                         self.rate.pause(delay)
                     else:
                         await asyncio.sleep(delay)

@@ -268,3 +268,41 @@ async def test_single_retry_preserves_unchanged_clips_and_never_adds_an_error_ro
     await service.generate(Job("text"), entry, card.deck, Fails(), preferences, card.id)
     assert len(library.all()) == 1
     assert library.get(card.id).reason == "Connection lost"
+
+
+async def test_unmetered_audio_runs_full_concurrency_without_rate_limit(library, card, preferences):
+    first = card
+    second = card.model_copy(
+        update={
+            "id": "card-2",
+            "word": "lucid",
+            "meaning": "Clear and easy to understand.",
+            "example1": "A lucid explanation.",
+            "example2": "Her prose is lucid.",
+        }
+    )
+    library.save(first)
+    library.save(second)
+    state = {"active": 0, "peak": 0}
+    gate = asyncio.Event()
+
+    class ParallelSynth:
+        async def synthesize(self, text: str) -> bytes:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+            if state["active"] == 6:
+                gate.set()
+            await gate.wait()
+            state["active"] -= 1
+            return b"mp3"
+
+    preferences.tts_rpm = 0
+    preferences.tts_concurrency = 6
+    service = Orchestrator(library)
+    stats = await asyncio.wait_for(
+        service.audio(Job("audio"), [first, second], ParallelSynth(), preferences),
+        timeout=2,
+    )
+    assert state["peak"] == 6
+    assert service.rate is None
+    assert stats == {"clips": 8, "ready": 8, "failed": 0, "skipped": 0}

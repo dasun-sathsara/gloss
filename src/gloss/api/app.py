@@ -225,6 +225,8 @@ def create_app(
         google = bool(environment.google_cloud_project)
         client = make_client(configuration) if google else None
         text: VertexLanguageModel | ChatCompletionsLanguageModel | None = None
+        synth: VertexSynthesizer | WoofSynthesizer | None = None
+        cancelled = False
         try:
             if environment.text_api_base:
                 text = ChatCompletionsLanguageModel(
@@ -241,16 +243,20 @@ def create_app(
                     "to the config .env.",
                     fatal=True,
                 )
-            synth = None
             if environment.woof_model_dir:
-                # Local clips cost nothing and answer to no quota. Keep a small gap so
-                # the progress stream still updates between clips.
-                preferences.tts_rpm = 120
                 synth = WoofSynthesizer(Path(environment.woof_model_dir), environment.woof_voice)
+                # Local clips cost nothing and answer to no quota; use every available core.
+                preferences.tts_rpm = 0
+                preferences.tts_concurrency = synth.workers
             elif client:
                 synth = VertexSynthesizer(client, preferences)
             await operation(job, text, synth, preferences)
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
         finally:
+            if isinstance(synth, WoofSynthesizer):
+                await synth.aclose(wait=not cancelled)
             if isinstance(text, ChatCompletionsLanguageModel):
                 await text.aclose()
             if client:
