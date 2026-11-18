@@ -9,6 +9,7 @@ from gloss.anki.client import AnkiClient
 from gloss.anki.gateway import AnkiGateway
 from gloss.anki.templates import fields
 from gloss.core.events import Job
+from gloss.core.models import CLIP_KINDS
 from gloss.core.ports import ProviderError
 
 
@@ -52,13 +53,19 @@ def assert_no_writes(client):
 async def test_upsert_updates_and_moves_cards_preserving_note_id(library, card, preferences):
     card.deck = "Gloss::Science"
     client = mock_client([note_for(card)])
-    await AnkiGateway(client, library).sync(Job("sync"), [card], preferences, True, "Learner")
-    client.call.assert_any_await(
-        "updateNoteFields", note={"id": 11, "fields": fields(card, card.base_identity())}
-    )
+    card.audio = {"word": "gloss_missing.mp3"}
+    job = Job("sync")
+    await AnkiGateway(client, library).sync(job, [card], preferences, True, "Learner")
+    expected_fields = fields(card.model_copy(update={"audio": {}}), card.base_identity())
+    client.call.assert_any_await("updateNoteFields", note={"id": 11, "fields": expected_fields})
     client.call.assert_any_await("changeDeck", cards=[111], deck="Gloss::Science")
     assert library.get(card.id).note_id == 11
     assert not any(call.args[0] == "addNote" for call in client.call.call_args_list)
+    progress = [event["data"] for event in job.events if event["event"] == "progress"]
+    assert progress == [
+        {"stage": "sync", "completed": 0, "total": 1},
+        {"stage": "sync", "completed": 1, "total": 1},
+    ]
 
 
 async def test_sync_rejects_unsafe_writes(library, card, preferences):
@@ -72,6 +79,10 @@ async def test_sync_rejects_unsafe_writes(library, card, preferences):
     card.deck = "Gloss::General"
     with pytest.raises(ValueError, match="audio is missing"):
         await gateway.sync(Job("sync"), [card], preferences, False, "Learner")
+    card.audio = {kind: "gloss_missing.mp3" for kind in CLIP_KINDS}
+    with pytest.raises(ValueError, match="missing"):
+        await gateway.sync(Job("sync"), [card], preferences, False, "Learner")
+    card.audio = {}
     assert_no_writes(client)
 
     client = mock_client([note_for(card)])

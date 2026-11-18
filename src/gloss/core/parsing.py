@@ -12,6 +12,9 @@ def parse_entries(text: str) -> list[Entry]:
         raw = raw.strip()
         if not raw:
             continue
+        raw = re.sub(r"^(?:[-*•]+|\d+[.)])\s+", "", raw).strip()
+        if not raw:
+            continue
         parts = re.split(r"\s*:\s*|\s+-\s+", raw, maxsplit=1)
         word, hint = parts[0].strip(), parts[1].strip() if len(parts) == 2 else ""
         key = (normalized(word), normalized(hint))

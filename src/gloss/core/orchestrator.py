@@ -131,7 +131,10 @@ class Orchestrator:
             if card.base_identity() == old.base_identity():
                 card.note_id = old.note_id
                 card.sync_identity = old.sync_identity
-                card.synced_hash = old.synced_hash
+                if old.synced_hash and card.content_hash() == old.synced_hash:
+                    card.synced_hash = old.synced_hash
+                else:
+                    card.synced_hash = ""
             for kind in CLIP_KINDS:
                 if card.clip_text(kind) == old.clip_text(kind) and kind in old.audio:
                     card.audio[kind] = old.audio[kind]
@@ -182,6 +185,8 @@ class Orchestrator:
                     logger.warning(
                         "Text batch of %d failed, retrying in pairs: %s", len(items), exc
                     )
+                    if exc.rate_limited:
+                        await asyncio.sleep(min(2.0, backoff(0, False)))
                     outcomes: list[tuple[Entry, Generated | None, str]] = []
                     for start in range(0, len(items), 2):
                         outcomes.extend(await fetch(items[start : start + 2]))

@@ -164,6 +164,9 @@ code {
 .workspace {
   padding: 1.5rem 1.5rem 3rem;
 }
+.workspace > [data-slot="alert"] {
+  margin-bottom: 1rem;
+}
 .demo-notice {
   color: var(--muted-foreground);
   font-size: var(--type-meta);
@@ -376,6 +379,10 @@ button[data-slot="collapsible-trigger"][data-state="open"] > svg {
   font-size: 0.75rem;
   line-height: 1rem;
   color: var(--muted-foreground);
+}
+.unsaved-label {
+  color: var(--primary);
+  font-weight: 500;
 }
 .synced-label {
   display: inline-flex;
@@ -608,7 +615,8 @@ textarea {
   position: relative;
   gap: 0;
   padding: 4px;
-  height: 36px;
+  min-height: 2.25rem;
+  height: auto;
 }
 .workspace-tabs [data-slot="tabs-trigger"] {
   width: 5rem;
@@ -1071,6 +1079,18 @@ textarea {
 
 .endpoint-status.down {
   color: #b3261e;
+}
+
+.dark .endpoint-status.ready {
+  color: var(--primary);
+}
+
+.dark .endpoint-status.warming {
+  color: #f0b860;
+}
+
+.dark .endpoint-status.down {
+  color: var(--destructive);
 }
 
 @keyframes endpoint-pulse {

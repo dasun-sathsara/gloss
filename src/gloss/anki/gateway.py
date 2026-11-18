@@ -294,9 +294,10 @@ class AnkiGateway:
                     "Keep both meanings or remove one."
                 )
             keys.add(key)
-        for card in cards:
-            if card.decision == "skip":
-                continue
+        to_write = [card for card in cards if card.decision != "skip"]
+        if to_write:
+            job.emit("progress", {"stage": "sync", "completed": 0, "total": len(to_write)})
+        for completed, card in enumerate(to_write, start=1):
             if await self.client.call("getActiveProfile") != expected_profile:
                 raise ProviderError("The active Anki profile changed. Start sync again.")
             if card.decision == "keep_both":
@@ -314,6 +315,26 @@ class AnkiGateway:
                     raise ValueError(
                         "A matching note is outside the Gloss parent. Resolve it in Anki."
                     )
+            missing_kinds = {
+                kind
+                for kind, name in card.audio.items()
+                if not (self.library.media / name).is_file()
+            }
+            audio_card = card
+            if missing_kinds:
+                if not allow_missing:
+                    raise ValueError(
+                        "Some audio is missing. Retry it or explicitly sync without it."
+                    )
+                audio_card = card.model_copy(
+                    update={
+                        "audio": {
+                            kind: name
+                            for kind, name in card.audio.items()
+                            if kind not in missing_kinds
+                        }
+                    }
+                )
             actions = [
                 {
                     "action": "storeMediaFile",
@@ -324,16 +345,16 @@ class AnkiGateway:
                         ),
                     },
                 }
-                for name in set(card.audio.values())
+                for name in set(audio_card.audio.values())
             ]
             if actions:
                 await self.client.multi(actions)
-            payload = fields(card, key)
+            payload = fields(audio_card, key)
             if matches and allow_missing:
                 existing = matches[0]["fields"]
                 for kind, name in AUDIO_FIELDS.items():
                     # Preserve audio that only Anki holds; an empty field would erase it.
-                    if kind not in card.audio and existing.get(name, {}).get("value"):
+                    if kind not in audio_card.audio and existing.get(name, {}).get("value"):
                         payload.pop(name, None)
             if matches:
                 note_id = matches[0]["noteId"]
@@ -357,6 +378,7 @@ class AnkiGateway:
             card.synced_hash = card.content_hash()
             self.library.save(card)
             job.emit("card", card.model_dump())
+            job.emit("progress", {"stage": "sync", "completed": completed, "total": len(to_write)})
         await self.client.call("sync")
         job.emit(
             "sync_started",

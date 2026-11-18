@@ -32,7 +32,7 @@ def parse_generated(text: str, entries: list[Entry]) -> list[Generated]:
         parsed = json.loads(text)
     except json.JSONDecodeError:
         parsed = repair_json(text, return_objects=True)
-    raw = parsed.get("items") if isinstance(parsed, dict) else None
+    raw = parsed.get("items") if isinstance(parsed, dict) else parsed
     raw_items = raw if isinstance(raw, list) else []
     parsed_items: list[Generated] = []
     for entry in raw_items:
@@ -60,6 +60,10 @@ def parse_generated(text: str, entries: list[Entry]) -> list[Generated]:
                 pool.remove(match)
                 match.index = entry.index
                 valid[entry.index] = match
+        if not valid and len(entries) == 1 and len(pool) == 1:
+            only = pool[0]
+            only.index = entries[0].index
+            valid[only.index] = only
     return list(valid.values())
 
 

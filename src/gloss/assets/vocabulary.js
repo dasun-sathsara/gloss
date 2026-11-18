@@ -59,9 +59,14 @@
       }
       stopOthers(audio);
       if (error) error.hidden = true;
-      audio.currentTime = 0;
+      if (audio.readyState > 0) audio.currentTime = 0;
       var playing = audio.play();
-      if (playing && playing.catch) playing.catch(failed);
+      if (playing && playing.catch) {
+        playing.catch(function (err) {
+          if (err && err.name === "AbortError") return;
+          failed();
+        });
+      }
     });
   });
 

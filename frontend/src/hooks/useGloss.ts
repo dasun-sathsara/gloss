@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AnkiStatus,
   api,
   type Bootstrap,
   type Card,
   type Clip,
+  clips,
   type Conflict,
   describeSummary,
   editable,
@@ -13,6 +14,7 @@ import {
   type Job,
   mergeIncoming,
   missingClips,
+  normalizedText,
   type Parsed,
   type Preferences,
   type Progress,
@@ -59,7 +61,13 @@ export function useGloss() {
   // Cards whose edits were saved and still need audio. Recorded once the current run ends.
   const [audioQueue, setAudioQueue] = useState<Set<string>>(new Set());
   const [removeIds, setRemoveIds] = useState<string[]>([]);
+  const [playing, setPlaying] = useState<{ id: string; kind: Clip } | null>(null);
   const removed = useRef<Set<string>>(new Set());
+  const cleanSnapshots = useRef<Map<string, Card>>(new Map());
+  const parseErrorMessage = useRef("");
+  const playerRef = useRef<HTMLAudioElement | null>(null);
+  const playingRef = useRef(playing);
+  playingRef.current = playing;
   const source = useRef<EventSource | null>(null);
   const cardsRef = useRef(cards);
   cardsRef.current = cards;
@@ -71,6 +79,50 @@ export function useGloss() {
   // Words stay editable while audio records. The server keeps edits and drops stale clips.
   const editLocked = pending || (!!job && !audioRunning);
 
+  const stopAudio = useCallback(() => {
+    const current = playerRef.current;
+    if (current) {
+      playerRef.current = null;
+      current.pause();
+    }
+    setPlaying(null);
+  }, []);
+
+  useEffect(() => stopAudio, [stopAudio]);
+
+  const playClip = useCallback(
+    (id: string, kind: Clip, file: string, onBlocked?: () => void) => {
+      const current = playingRef.current;
+      if (current?.id === id && current.kind === kind) {
+        stopAudio();
+        return;
+      }
+      stopAudio();
+      const audio = new Audio(`/media/${file}`);
+      playerRef.current = audio;
+      setPlaying({ id, kind });
+      const clearIfCurrent = () => {
+        if (playerRef.current === audio) {
+          playerRef.current = null;
+          setPlaying(null);
+        }
+      };
+      audio.addEventListener("ended", clearIfCurrent);
+      audio.addEventListener("pause", clearIfCurrent);
+      audio.addEventListener("error", () => {
+        clearIfCurrent();
+        setError("Could not play this audio clip.");
+      });
+      audio.play().catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        clearIfCurrent();
+        if (onBlocked) onBlocked();
+        else setError("Could not play this audio clip.");
+      });
+    },
+    [stopAudio],
+  );
+
   const updateCard = useCallback((card: Card) => {
     setCards((old) =>
       old.some((value) => value.id === card.id)
@@ -81,6 +133,10 @@ export function useGloss() {
   const receiveCard = useCallback((card: Card) => {
     // A run can report a card the user removed a moment ago. Do not bring it back.
     if (removed.current.has(card.id)) return;
+    if (dirtyRef.current.has(card.id)) {
+      const snap = cleanSnapshots.current.get(card.id);
+      if (snap) cleanSnapshots.current.set(card.id, mergeIncoming(snap, card));
+    }
     setCards((old) => {
       const local = old.find((value) => value.id === card.id);
       if (!local) return [card, ...old];
@@ -150,8 +206,20 @@ export function useGloss() {
   useEffect(() => {
     if (bootstrap?.text_health !== "warming") return;
     const timer = setInterval(() => {
-      api<Bootstrap>("/bootstrap")
-        .then(setBootstrap)
+      api<{ text_health?: Bootstrap["text_health"]; text_health_detail?: string }>("/health")
+        .then((health) => {
+          const nextHealth = health.text_health;
+          if (!nextHealth) return;
+          setBootstrap((old) =>
+            old
+              ? {
+                  ...old,
+                  text_health: nextHealth,
+                  text_health_detail: health.text_health_detail ?? "",
+                }
+              : old,
+          );
+        })
         .catch(() => {});
     }, 4000);
     return () => clearInterval(timer);
@@ -169,6 +237,11 @@ export function useGloss() {
           matchMedia("(prefers-color-scheme: dark)").matches);
       document.documentElement.dataset.theme = dark ? "dark" : "light";
       document.documentElement.classList.toggle("dark", dark);
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", dark ? "#171b19" : "#fafaf9");
+      try {
+        localStorage.setItem("gloss-theme", bootstrap.settings.theme);
+      } catch {}
     };
     const query = matchMedia("(prefers-color-scheme: dark)");
     apply();
@@ -177,10 +250,24 @@ export function useGloss() {
   }, [bootstrap]);
 
   useEffect(() => {
+    if (!dirty.size) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty.size]);
+
+  useEffect(() => {
     const controller = new AbortController();
     const timeout = setTimeout(async () => {
       if (!text.trim()) {
         setParsed(null);
+        if (parseErrorMessage.current) {
+          const target = parseErrorMessage.current;
+          parseErrorMessage.current = "";
+          setError((old) => (old === target ? "" : old));
+        }
         return;
       }
       try {
@@ -193,9 +280,18 @@ export function useGloss() {
         const data = await response.json();
         if (!response.ok) throw new Error(data.detail || "Could not parse this paste.");
         setParsed(data);
+        if (parseErrorMessage.current) {
+          const target = parseErrorMessage.current;
+          parseErrorMessage.current = "";
+          setError((old) => (old === target ? "" : old));
+        }
       } catch (error) {
-        if (!controller.signal.aborted)
-          setError(error instanceof Error ? error.message : "Could not parse.");
+        if (!controller.signal.aborted) {
+          setParsed(null);
+          const message = error instanceof Error ? error.message : "Could not parse.";
+          parseErrorMessage.current = message;
+          setError(message);
+        }
       }
     }, 180);
     return () => {
@@ -207,40 +303,56 @@ export function useGloss() {
   useEffect(() => {
     if (!job) return;
     let ended = false;
+    const lostWarning =
+      "Gloss lost its progress connection. It will keep trying; saved work is safe.";
+    let lostConnection = false;
+    const clearLostWarning = () => {
+      if (!lostConnection) return;
+      lostConnection = false;
+      setError((old) => (old === lostWarning ? "" : old));
+    };
     const eventSource = new EventSource(`/api/jobs/${job.id}/events`);
     source.current = eventSource;
     let outcome: "ok" | "failed" | "cancelled" = "ok";
     eventSource.addEventListener("card", (event) => {
+      clearLostWarning();
       const card: Card = JSON.parse((event as MessageEvent).data);
       receiveCard(card);
       if (job.kind === "text" && !removed.current.has(card.id)) {
         setBatchIds((old) => new Set([...old, card.id]));
-        if (card.valid) setSelected((old) => new Set([...old, card.id]));
+        if (isReady(card)) setSelected((old) => new Set([...old, card.id]));
       }
     });
-    eventSource.addEventListener("progress", (event) =>
-      setProgress(JSON.parse((event as MessageEvent).data)),
-    );
+    eventSource.addEventListener("progress", (event) => {
+      clearLostWarning();
+      setProgress(JSON.parse((event as MessageEvent).data));
+    });
     eventSource.addEventListener("failed", (event) => {
+      lostConnection = false;
       outcome = "failed";
       setError(JSON.parse((event as MessageEvent).data).message);
     });
     eventSource.addEventListener("summary", (event) => {
+      clearLostWarning();
       const summary: Summary = JSON.parse((event as MessageEvent).data);
       const message = describeSummary(summary);
       if (message) setNotice(message);
     });
-    eventSource.addEventListener("conflicts", (event) =>
-      setConflicts(JSON.parse((event as MessageEvent).data)),
-    );
-    eventSource.addEventListener("sync_started", (event) =>
-      setNotice(JSON.parse((event as MessageEvent).data).message),
-    );
+    eventSource.addEventListener("conflicts", (event) => {
+      clearLostWarning();
+      setConflicts(JSON.parse((event as MessageEvent).data));
+    });
+    eventSource.addEventListener("sync_started", (event) => {
+      clearLostWarning();
+      setNotice(JSON.parse((event as MessageEvent).data).message);
+    });
     eventSource.addEventListener("cancelled", () => {
+      clearLostWarning();
       outcome = "cancelled";
       setNotice("Stopped. Completed words and audio are saved.");
     });
     eventSource.addEventListener("done", () => {
+      clearLostWarning();
       ended = true;
       eventSource.close();
       setJob(null);
@@ -255,20 +367,26 @@ export function useGloss() {
         const value = await api<Bootstrap>("/bootstrap");
         if (ended) return;
         if (!value.active_job || value.active_job.id !== job.id) {
+          ended = true;
           eventSource.close();
           setJob(null);
           setProgress(null);
-          if (dirtyRef.current.size === 0) {
-            setCards(value.cards);
-            setError("The progress connection ended. Saved work has been reloaded.");
-          } else {
-            setError("The progress connection ended. Save your open edits, then reopen Gloss.");
-          }
+          setCards((old) => {
+            const localById = new Map(old.map((card) => [card.id, card]));
+            return value.cards
+              .filter((card) => !removed.current.has(card.id))
+              .map((card) => {
+                const local = localById.get(card.id);
+                return local && dirtyRef.current.has(card.id) ? mergeIncoming(local, card) : card;
+              });
+          });
+          setError("The progress connection ended. Saved work has been reloaded.");
         }
       } catch {
         // The server may be briefly unreachable while the run keeps going. Keep the
         // job and its Cancel control so the user is not wedged; EventSource retries.
-        setError("Gloss lost its progress connection. It will keep trying; saved work is safe.");
+        lostConnection = true;
+        setError(lostWarning);
       }
     };
     return () => {
@@ -301,13 +419,14 @@ export function useGloss() {
     if (!job && listenAfter) {
       const card = cards.find((card) => card.id === listenAfter.id);
       const file = card?.audio[listenAfter.kind];
-      if (file)
-        new Audio(`/media/${file}`)
-          .play()
-          .catch(() => setNotice("Your browser blocked playback. Press Play in the card editor."));
+      if (file) {
+        playClip(listenAfter.id, listenAfter.kind, file, () =>
+          setNotice("Your browser blocked playback. Press Play in the card editor."),
+        );
+      }
       setListenAfter(null);
     }
-  }, [job, cards, listenAfter]);
+  }, [job, cards, listenAfter, playClip]);
 
   const perform = async (operation: () => Promise<void>) => {
     setPending(true);
@@ -322,6 +441,7 @@ export function useGloss() {
   };
   const saveCard = async (card: Card) => {
     const saved = await api<Card>(`/cards/${card.id}`, "PATCH", editable(card));
+    cleanSnapshots.current.delete(card.id);
     updateCard(saved);
     setDirty((old) => {
       const next = new Set(old);
@@ -332,7 +452,12 @@ export function useGloss() {
   };
   /** Save from the editor, then record any clip the edit invalidated. */
   const saveEdit = async (card: Card) => {
+    const prev = cleanSnapshots.current.get(card.id);
+    const wasReady = prev ? isReady(prev) : isReady(card);
     const saved = await saveCard(card);
+    if (!wasReady && isReady(saved) && batchIds.has(saved.id) && view === "review") {
+      setSelected((old) => new Set([...old, saved.id]));
+    }
     if (
       bootstrap?.audio_ready &&
       bootstrap?.settings.auto_audio &&
@@ -340,6 +465,7 @@ export function useGloss() {
       !hasAudio(saved)
     )
       setAudioQueue((old) => new Set([...old, saved.id]));
+    return saved;
   };
   const flush = async () => {
     const values = cardsRef.current.filter((card) => dirty.has(card.id));
@@ -349,6 +475,9 @@ export function useGloss() {
     setCards((old) =>
       old.map((card) => {
         if (card.id !== id) return card;
+        if (!dirtyRef.current.has(id) && !cleanSnapshots.current.has(id)) {
+          cleanSnapshots.current.set(id, card);
+        }
         const audio = { ...card.audio };
         // Only invalidate a clip when its text actually changed.
         if (patch.word !== undefined && patch.word !== card.word) delete audio.word;
@@ -360,6 +489,33 @@ export function useGloss() {
     );
     setDirty((old) => new Set([...old, id]));
   };
+  const discardCard = useCallback(
+    (id: string) => {
+      const snapshot = cleanSnapshots.current.get(id);
+      cleanSnapshots.current.delete(id);
+      if (snapshot) {
+        setCards((old) =>
+          old.map((card) => {
+            if (card.id !== id) return card;
+            const audio = { ...snapshot.audio };
+            for (const clip of clips) {
+              if (card[clip] === snapshot[clip] && card.audio[clip]) {
+                audio[clip] = card.audio[clip];
+              }
+            }
+            return { ...snapshot, audio };
+          }),
+        );
+      }
+      setDirty((old) => {
+        const next = new Set(old);
+        next.delete(id);
+        return next;
+      });
+      if (playingRef.current?.id === id) stopAudio();
+    },
+    [stopAudio],
+  );
   const generate = async (confirmed = false) => {
     if (parsed?.over_cap && !confirmed) {
       setConfirmCap(true);
@@ -385,22 +541,33 @@ export function useGloss() {
       setNotice("");
     });
   };
-  const selection = cards.filter((card) => selected.has(card.id));
-  const readySelection = selection.filter((card) => isReady(card) && card.decision !== "skip");
-  const visibleCards = cards
-    .filter(
-      (card) =>
-        (view === "library" || batchIds.has(card.id)) &&
-        `${card.word} ${card.meaning} ${card.sinhala}`.toLowerCase().includes(search.toLowerCase()),
-    )
-    // Deterministic order: input order in a batch; newest batch first in the
-    // library, still in input order within each batch.
-    .sort((a, b) =>
-      view === "library"
-        ? Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
-          (a.order % 1000) - (b.order % 1000)
-        : a.order - b.order,
+  const selection = useMemo(() => cards.filter((card) => selected.has(card.id)), [cards, selected]);
+  const readySelection = useMemo(
+    () => selection.filter((card) => isReady(card) && card.decision !== "skip"),
+    [selection],
+  );
+  const visibleCards = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return (
+      cards
+        .filter(
+          (card) =>
+            (view === "library" || batchIds.has(card.id)) &&
+            (!query ||
+              `${card.word} ${card.source_word} ${card.pos} ${card.meaning} ${card.sinhala} ${card.example1} ${card.example2} ${view === "library" ? card.deck : ""}`
+                .toLowerCase()
+                .includes(query)),
+        )
+        // Deterministic order: input order in a batch; newest batch first in the
+        // library, still in input order within each batch.
+        .sort((a, b) =>
+          view === "library"
+            ? Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
+              (a.order % 1000) - (b.order % 1000)
+            : a.order - b.order,
+        )
     );
+  }, [cards, view, batchIds, search]);
   const audio = () =>
     perform(async () => {
       await flush();
@@ -423,33 +590,71 @@ export function useGloss() {
       await assignBatchDeck(target);
       setDeck(target);
     });
+  const pullAndOpenSync = async (ids: string[]) => {
+    const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", { ids });
+    setSyncDialog({ ids, ...pull });
+    setAllowMissing(false);
+  };
   const beginSync = () =>
     perform(async () => {
       await flush();
       if (view === "review") await assignBatchDeck(deck);
       const ids = readySelection.map((card) => card.id);
       const found = await api<Conflict[]>("/anki/conflicts", "POST", { ids });
-      const unresolved = found.filter(
-        (conflict) => cardsRef.current.find((card) => card.id === conflict.id)?.decision === "ask",
-      );
-      if (unresolved.length) {
-        setConflicts(unresolved);
+      const byId = new Map(cardsRef.current.map((card) => [card.id, card]));
+      const hasAsk = found.some((conflict) => byId.get(conflict.id)?.decision === "ask");
+      const collisionGroups = new Map<string, number>();
+      for (const id of ids) {
+        const card = byId.get(id);
+        if (!card || card.decision === "skip" || card.decision === "keep_both") continue;
+        const key = `${normalizedText(card.word)}\0${normalizedText(card.pos)}`;
+        collisionGroups.set(key, (collisionGroups.get(key) ?? 0) + 1);
+      }
+      const hasBatchCollision = found.some((conflict) => {
+        if (conflict.kind !== "batch") return false;
+        const card = byId.get(conflict.id);
+        if (!card || card.decision === "skip" || card.decision === "keep_both") return false;
+        const key = `${normalizedText(card.word)}\0${normalizedText(card.pos)}`;
+        return (collisionGroups.get(key) ?? 0) > 1;
+      });
+      if (hasAsk || hasBatchCollision) {
+        setConflicts(found);
         return;
       }
-      const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", { ids });
-      setSyncDialog({ ids, ...pull });
-      setAllowMissing(false);
+      await pullAndOpenSync(ids);
+    });
+  const resolveConflicts = () =>
+    perform(async () => {
+      await flush();
+      const ids = cardsRef.current
+        .filter((card) => selected.has(card.id) && isReady(card) && card.decision !== "skip")
+        .map((card) => card.id);
+      if (!ids.length) {
+        setConflicts([]);
+        setNotice("Skipped the conflicting words.");
+        return;
+      }
+      if (view === "review") await assignBatchDeck(deck);
+      await pullAndOpenSync(ids);
+      setConflicts([]);
     });
 
-  const missing = readySelection.some((card) => !hasAudio(card));
-  const missingCount = readySelection.reduce((total, card) => total + missingClips(card), 0);
+  const missing = useMemo(() => readySelection.some((card) => !hasAudio(card)), [readySelection]);
+  const missingCount = useMemo(
+    () => readySelection.reduce((total, card) => total + missingClips(card), 0),
+    [readySelection],
+  );
 
   const remove = (ids: string[]) =>
     perform(async () => {
       const settled = await Promise.allSettled(ids.map((id) => api(`/cards/${id}`, "DELETE")));
       const gone = new Set(ids.filter((_, index) => settled[index].status === "fulfilled"));
       const failed = ids.filter((_, index) => settled[index].status === "rejected");
-      for (const id of gone) removed.current.add(id);
+      for (const id of gone) {
+        removed.current.add(id);
+        cleanSnapshots.current.delete(id);
+      }
+      if (playingRef.current && gone.has(playingRef.current.id)) stopAudio();
       setCards((old) => old.filter((card) => !gone.has(card.id)));
       setSelected((old) => new Set([...old].filter((id) => !gone.has(id))));
       setBatchIds((old) => new Set([...old].filter((id) => !gone.has(id))));
@@ -463,22 +668,43 @@ export function useGloss() {
     });
   const retry = (card: Card) =>
     perform(async () => {
-      await flush();
+      const otherDirty = cardsRef.current.filter(
+        (value) => dirty.has(value.id) && value.id !== card.id,
+      );
+      await Promise.all(otherDirty.map(saveCard));
+      cleanSnapshots.current.delete(card.id);
+      setDirty((old) => {
+        const next = new Set(old);
+        next.delete(card.id);
+        return next;
+      });
       setProgress(null);
       setJob(await api<Job>(`/cards/${card.id}/retry`, "POST", {}));
     });
-  const listen = (card: Card, kind: Clip) =>
-    perform(async () => {
-      const saved = dirty.has(card.id) ? await saveCard(card) : card;
-      if (saved.audio[kind]) await new Audio(`/media/${saved.audio[kind]}`).play();
-      else if (!bootstrap?.audio_ready)
+  const listen = (card: Card, kind: Clip) => {
+    const existing = card.audio[kind];
+    if (existing) {
+      playClip(card.id, kind, existing);
+      return;
+    }
+    void perform(async () => {
+      if (!bootstrap?.audio_ready)
         throw new Error("Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env.");
-      else {
-        setListenAfter({ id: card.id, kind });
-        setProgress(null);
-        setJob(await api<Job>("/audio", "POST", { ids: [card.id], kind }));
+      if (!isReady(card))
+        throw new Error(
+          "Complete all word, definition, and example fields before generating audio.",
+        );
+      const saved = dirty.has(card.id) ? await saveEdit(card) : card;
+      const cached = saved.audio[kind];
+      if (cached) {
+        playClip(saved.id, kind, cached);
+        return;
       }
+      setListenAfter({ id: saved.id, kind });
+      setProgress(null);
+      setJob(await api<Job>("/audio", "POST", { ids: [saved.id], kind }));
     });
+  };
   const changeView = (next: "review" | "library") => {
     setView(next);
     setSearch("");
@@ -494,6 +720,7 @@ export function useGloss() {
     await flush();
     await api("/settings", "PUT", settings);
     const value = await api<Bootstrap>("/bootstrap");
+    cleanSnapshots.current.clear();
     setBootstrap(value);
     setCards(value.cards);
     setSettingsOpen(false);
@@ -523,6 +750,9 @@ export function useGloss() {
     setRemoveIds,
     missingCount,
     saveEdit,
+    discardCard,
+    playing,
+    stopAudio,
     view,
     changeView,
     search,
@@ -545,6 +775,7 @@ export function useGloss() {
     setAllowMissing,
     conflicts,
     setConflicts,
+    resolveConflicts,
     refreshAnki,
     perform,
     saveCard,

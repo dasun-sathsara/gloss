@@ -1,3 +1,5 @@
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
+import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { Choice } from "./components/Choice";
 import { Modal } from "./components/Modal";
 import { Settings } from "./components/Settings";
@@ -12,7 +14,7 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { WordTable } from "./components/WordTable";
 import { useGloss } from "./hooks/useGloss";
-import { api, type Card, type Decision, type Job } from "./lib";
+import { api, type Card, type Decision, type Job, normalizedText } from "./lib";
 
 export default function App() {
   const g = useGloss();
@@ -75,7 +77,7 @@ export default function App() {
             }}
             disabled={g.busy}
           >
-            Anki {g.anki.connected ? "connected" : "offline"}
+            Anki {g.anki.connected ? (g.anki.ready ? "connected" : "setup needed") : "offline"}
           </Button>
           <Button
             variant="ghost"
@@ -95,16 +97,20 @@ export default function App() {
         {b.library_truncated && (
           <Alert>
             <AlertDescription>
-              Showing the newest {g.cards.length} of {b.card_count} saved words.
+              <p>
+                Showing the newest {g.cards.length} of {b.card_count} saved words.
+              </p>
             </AlertDescription>
           </Alert>
         )}
         {!b.provider_ready && (
           <Alert>
             <AlertDescription>
-              Add a text endpoint as <code>TEXT_API_BASE</code> and <code>TEXT_API_KEY</code>, or
-              the Google project and credentials, to the <code>.env</code> in{" "}
-              <code>{b.config_dir}</code>, then restart Gloss.
+              <p>
+                Add a text endpoint as <code>TEXT_API_BASE</code> and <code>TEXT_API_KEY</code>, or
+                the Google project and credentials, to the <code>.env</code> in{" "}
+                <code>{b.config_dir}</code>, then restart Gloss.
+              </p>
             </AlertDescription>
           </Alert>
         )}
@@ -210,13 +216,29 @@ export default function App() {
                     )}
                   </div>
                 )}
-                {g.parsed?.entries
-                  .filter((entry) => entry.duplicate || entry.warning)
-                  .map((entry) => (
-                    <p className="help" key={entry.index}>
-                      {entry.word}: {entry.warning || "Repeated in this batch"}
-                    </p>
-                  ))}
+                {(() => {
+                  const issues =
+                    g.parsed?.entries.filter((entry) => entry.duplicate || entry.warning) ?? [];
+                  if (!issues.length) return null;
+                  return (
+                    <>
+                      {issues.slice(0, 5).map((entry) => {
+                        const label = entry.word
+                          ? `${entry.word.slice(0, 40)}${entry.word.length > 40 ? "…" : ""}: `
+                          : "";
+                        return (
+                          <p className="help" key={entry.index}>
+                            {label}
+                            {entry.warning || "Repeated in this batch"}
+                          </p>
+                        );
+                      })}
+                      {issues.length > 5 && (
+                        <p className="help">+{issues.length - 5} more warnings or duplicates</p>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
               <Button
                 className="generate-button"
@@ -269,6 +291,15 @@ export default function App() {
                     !g.readySelection.length ||
                     !g.anki.ready ||
                     (g.view === "review" && deckMissing)
+                  }
+                  title={
+                    !g.anki.connected
+                      ? "Open Anki with AnkiConnect enabled to sync."
+                      : !g.anki.ready
+                        ? "Open Anki in the header and choose Set up Anki first."
+                        : g.view === "review" && deckMissing
+                          ? "Choose an existing Anki subdeck before syncing."
+                          : undefined
                   }
                   className="batch-action"
                   onClick={g.beginSync}
@@ -340,11 +371,22 @@ export default function App() {
                 jobActive={!!g.job}
                 audioReady={audioReady}
                 library={g.view === "library"}
+                playing={g.playing}
                 onSelect={(id) =>
                   g.setSelected((old) => {
                     const next = new Set(old);
                     if (next.has(id)) next.delete(id);
                     else next.add(id);
+                    return next;
+                  })
+                }
+                onSelectRange={(ids, checked) =>
+                  g.setSelected((old) => {
+                    const next = new Set(old);
+                    for (const id of ids) {
+                      if (checked) next.add(id);
+                      else next.delete(id);
+                    }
                     return next;
                   })
                 }
@@ -364,9 +406,11 @@ export default function App() {
                     await g.saveEdit(card);
                   })
                 }
+                onDiscard={g.discardCard}
                 onRemove={(id) => g.setRemoveIds([id])}
                 onRetry={g.retry}
                 onListen={g.listen}
+                onStopAudio={g.stopAudio}
               />
             ) : (
               <p className="empty-state">
@@ -575,52 +619,94 @@ export default function App() {
             <AlertDescription>{g.error}</AlertDescription>
           </Alert>
         )}
-        <div className="conflict-list">
-          {g.conflicts.map((conflict) => {
-            const card = g.cards.find((card) => card.id === conflict.id);
-            return (
-              <div key={`${conflict.id}-${conflict.kind}`}>
-                <h3>{conflict.word}</h3>
-                <p>New: {card?.meaning}</p>
-                {conflict.existing.map((note) => (
-                  <p className="help" key={JSON.stringify(note)}>
-                    Existing: {note["English Meaning"]}
-                  </p>
-                ))}
-                <Choice
-                  label={`Action for ${conflict.word}`}
-                  value={card?.decision || "ask"}
-                  onChange={(value) => g.changeCard(conflict.id, { decision: value as Decision })}
-                  options={[
+        {(() => {
+          const grouped = new Map<
+            string,
+            {
+              id: string;
+              word: string;
+              ankiNotes: Record<string, string>[];
+              batchNotes: Record<string, string>[];
+            }
+          >();
+          for (const conflict of g.conflicts) {
+            const entry = grouped.get(conflict.id) ?? {
+              id: conflict.id,
+              word: conflict.word,
+              ankiNotes: [],
+              batchNotes: [],
+            };
+            if (conflict.kind === "anki") entry.ankiNotes.push(...conflict.existing);
+            else entry.batchNotes.push(...conflict.existing);
+            grouped.set(conflict.id, entry);
+          }
+          const groups = [...grouped.values()];
+          const keyCounts = new Map<string, number>();
+          for (const card of g.readySelection) {
+            if (card.decision === "keep_both") continue;
+            const key = `${normalizedText(card.word)}\0${normalizedText(card.pos)}`;
+            keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+          }
+          const hasUnresolvedBatchCollision = [...keyCounts.values()].some((count) => count > 1);
+          const hasUnpicked = groups.some(
+            (group) => g.cards.find((card) => card.id === group.id)?.decision === "ask",
+          );
+          return (
+            <>
+              <div className="conflict-list">
+                {groups.map((group) => {
+                  const card = g.cards.find((item) => item.id === group.id);
+                  const choiceOptions = [
                     { value: "ask", label: "Choose an action" },
                     { value: "keep_both", label: "Keep both meanings" },
-                    { value: "overwrite", label: "Overwrite existing meaning" },
+                    ...(group.ankiNotes.length
+                      ? [{ value: "overwrite", label: "Overwrite existing meaning" }]
+                      : []),
                     { value: "skip", label: "Skip this word" },
-                  ]}
-                />
+                  ];
+                  return (
+                    <div key={group.id}>
+                      <h3>{group.word}</h3>
+                      <p>New: {card?.meaning}</p>
+                      {group.ankiNotes.map((note) => (
+                        <p className="help" key={`anki-${JSON.stringify(note)}`}>
+                          In Anki: {note["English Meaning"]}
+                        </p>
+                      ))}
+                      {group.batchNotes.map((note) => (
+                        <p className="help" key={`batch-${JSON.stringify(note)}`}>
+                          Also in this batch: {note["English Meaning"]}
+                        </p>
+                      ))}
+                      <Choice
+                        label={`Action for ${group.word}`}
+                        value={card?.decision || "ask"}
+                        onChange={(value) =>
+                          g.changeCard(group.id, { decision: value as Decision })
+                        }
+                        options={choiceOptions}
+                      />
+                    </div>
+                  );
+                })}
               </div>
-            );
-          })}
-        </div>
-        <div className="dialog-footer">
-          <Button
-            disabled={
-              g.busy ||
-              g.conflicts.some(
-                (conflict) => g.cards.find((card) => card.id === conflict.id)?.decision === "ask",
-              )
-            }
-            onClick={() =>
-              g.perform(async () => {
-                await g.flush();
-                g.setConflicts([]);
-                g.setNotice("Choices saved. Sync to Anki to continue.");
-              })
-            }
-          >
-            Save choices
-          </Button>
-        </div>
+              {hasUnresolvedBatchCollision && (
+                <p className="text-destructive help">
+                  Two words in this batch still share one Anki note. Choose Keep both meanings or
+                  Skip for at least one of them.
+                </p>
+              )}
+              <div className="dialog-footer">
+                <Button
+                  disabled={g.busy || hasUnpicked || hasUnresolvedBatchCollision}
+                  onClick={g.resolveConflicts}
+                >
+                  Save choices
+                </Button>
+              </div>
+            </>
+          );
+        })()}
       </Modal>
     </div>
   );
@@ -630,6 +716,3 @@ function removeLabel(cards: Card[], id: string | undefined) {
   const card = cards.find((value) => value.id === id);
   return card?.word || card?.source_word || "This word";
 }
-
-import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
-import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";

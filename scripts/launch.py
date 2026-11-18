@@ -148,7 +148,6 @@ def update(uv: str) -> Path | None:
     stage = cache / f"{tag}-staging"
     final = cache / tag
     cache.mkdir(parents=True, exist_ok=True)
-    stage.mkdir(exist_ok=True)
     archive = cache / f"{tag}.zip"
     download_url = assets["gloss-frontend.zip"]["browser_download_url"]
     checksum_url = assets["gloss-frontend.sha256"]["browser_download_url"]
@@ -162,16 +161,16 @@ def update(uv: str) -> Path | None:
         expected = response.read(1024).decode().split()[0]
     if hashlib.sha256(archive.read_bytes()).hexdigest() != expected:
         raise ValueError("The frontend checksum does not match.")
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir(parents=True, exist_ok=True)
     safe_extract(archive, stage)
     run("git", "fetch", "origin", "--tags")
     try:
         run("git", "checkout", "--detach", tag)
         run(uv, "sync", "--frozen", "--no-dev")
         if final.exists():
-            # Reuse an already verified release cache after an interrupted launch.
-            safe_extract(archive, final)
-        else:
-            stage.rename(final)
+            shutil.rmtree(final)
+        stage.rename(final)
         temporary = state_path.with_suffix(".tmp")
         commit = run("git", "rev-parse", "HEAD")
         temporary.write_text(json.dumps({"tag": tag, "frontend": str(final), "commit": commit}))

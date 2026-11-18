@@ -82,6 +82,8 @@ def create_app(
     sync_ticket: dict[str, Any] = {}
     mutation_lock = asyncio.Lock()
     text_health: dict[str, str] = {"state": "off", "detail": ""}
+    warm_task: asyncio.Task[None] | None = None
+    woof_synth: WoofSynthesizer | None = None
 
     def unlocked(path: str) -> bool:
         # Parsing changes nothing, and Cancel must never queue behind a slow Anki call.
@@ -89,11 +91,20 @@ def create_app(
 
     async def warm_text() -> None:
         """Send one tiny completion so a cold router is ready before the user asks."""
+        current = asyncio.current_task()
         environment = configuration.environment
         if not environment.text_api_base or not environment.text_api_key:
-            text_health.update(state="off", detail="")
+            if warm_task is current:
+                text_health.update(state="off", detail="")
             return
-        text_health.update(state="warming", detail="")
+        if not environment.text_api_base.startswith(("http://", "https://")):
+            if warm_task is current:
+                text_health.update(
+                    state="down", detail="TEXT_API_BASE must be an http or https URL."
+                )
+            return
+        if warm_task is current:
+            text_health.update(state="warming", detail="")
         response: httpx.Response | None = None
         for attempt in range(2):
             try:
@@ -108,14 +119,21 @@ def create_app(
                     headers={"Authorization": f"Bearer {environment.text_api_key}"},
                     timeout=environment.text_timeout,
                 )
+            except httpx.InvalidURL:
+                if warm_task is current:
+                    text_health.update(state="down", detail="TEXT_API_BASE is not a valid URL.")
+                return
             except httpx.HTTPError:
-                text_health.update(state="down", detail="The text endpoint did not answer.")
+                if warm_task is current:
+                    text_health.update(state="down", detail="The text endpoint did not answer.")
                 return
             if 300 <= response.status_code < 400 and not attempt:
                 # The proxy redirects while the container wakes; try once more.
                 continue
             break
         assert response is not None
+        if warm_task is not current:
+            return
         if response.status_code == 200:
             text_health.update(state="ready", detail="")
         elif response.status_code in {401, 403}:
@@ -125,18 +143,36 @@ def create_app(
                 state="down", detail=f"The endpoint returned HTTP {response.status_code}."
             )
 
+    def start_warm() -> None:
+        nonlocal warm_task
+        if demo:
+            return
+        if warm_task and not warm_task.done():
+            warm_task.cancel()
+        environment = configuration.environment
+        if not environment.text_api_base or not environment.text_api_key:
+            text_health.update(state="off", detail="")
+            warm_task = None
+            return
+        text_health.update(state="warming", detail="")
+        warm_task = asyncio.create_task(warm_text())
+
     @asynccontextmanager
     async def lifespan(_: FastAPI):
-        warm = None if demo else asyncio.create_task(warm_text())
+        nonlocal woof_synth
+        start_warm()
         yield
-        if warm and not warm.done():
-            warm.cancel()
+        if warm_task and not warm_task.done():
+            warm_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await warm
+                await warm_task
         if jobs.active and jobs.active.task:
             jobs.active.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await jobs.active.task
+        if woof_synth is not None:
+            await woof_synth.aclose(wait=False)
+            woof_synth = None
         await http.aclose()
         library.close()
 
@@ -205,14 +241,26 @@ def create_app(
     def selected(ids: list[str]) -> list[Card]:
         return [library.get(card_id) for card_id in dict.fromkeys(ids)]
 
-    def valid_audio(card: Card) -> Card:
+    def valid_audio(card: Card, clips_by_key: dict[str, str] | None = None) -> Card:
         for kind in CLIP_KINDS:
-            expected = library.clip(clip_key(configuration.preferences, card.clip_text(kind)))
-            if card.audio.get(kind) != expected:
+            current_file = card.audio.get(kind)
+            if not current_file:
                 card.audio.pop(kind, None)
+                continue
+            key = clip_key(configuration.preferences, card.clip_text(kind))
+            expected = clips_by_key.get(key) if clips_by_key is not None else library.clip(key)
+            if current_file != expected:
+                card.audio.pop(kind, None)
+        if card.synced_hash and card.content_hash() != card.synced_hash:
+            card.synced_hash = ""
         return card
 
+    def valid_cards(cards: list[Card]) -> list[Card]:
+        clips_by_key = library.clip_map()
+        return [valid_audio(card, clips_by_key) for card in cards]
+
     async def with_providers(job: Job, operation) -> None:
+        nonlocal woof_synth
         preferences = configuration.preferences.model_copy(deep=True)
         if demo:
             from gloss.providers.demo import DemoLanguageModel, DemoSynthesizer
@@ -234,6 +282,7 @@ def create_app(
                     environment.text_api_key,
                     preferences,
                     timeout=environment.text_timeout,
+                    client=http,
                 )
             elif client:
                 text = VertexLanguageModel(client, preferences)
@@ -244,7 +293,11 @@ def create_app(
                     fatal=True,
                 )
             if environment.woof_model_dir:
-                synth = WoofSynthesizer(Path(environment.woof_model_dir), environment.woof_voice)
+                if woof_synth is None:
+                    woof_synth = WoofSynthesizer(
+                        Path(environment.woof_model_dir), environment.woof_voice
+                    )
+                synth = woof_synth
                 # Local clips cost nothing and answer to no quota; use every available core.
                 preferences.tts_rpm = 0
                 preferences.tts_concurrency = synth.workers
@@ -255,8 +308,9 @@ def create_app(
             cancelled = True
             raise
         finally:
-            if isinstance(synth, WoofSynthesizer):
-                await synth.aclose(wait=not cancelled)
+            if cancelled and woof_synth is not None:
+                await woof_synth.aclose(wait=False)
+                woof_synth = None
             if isinstance(text, ChatCompletionsLanguageModel):
                 await text.aclose()
             if client:
@@ -293,12 +347,17 @@ def create_app(
 
     @app.get("/api/health")
     async def health():
-        return {"app": "gloss", "version": app.version}
+        return {
+            "app": "gloss",
+            "version": app.version,
+            "text_health": text_health["state"],
+            "text_health_detail": text_health["detail"],
+        }
 
     @app.get("/api/bootstrap")
     async def bootstrap():
         active = jobs.active
-        cards = [valid_audio(card) for card in library.all()]
+        cards = valid_cards(library.all())
         total = library.count()
         environment = configuration.environment
         return {
@@ -340,10 +399,21 @@ def create_app(
     @app.put("/api/settings")
     async def settings(preferences: Preferences):
         idle()
+        previous_text_model = configuration.preferences.text_model
         configuration.save(preferences)
-        for card in library.all():
-            library.save(valid_audio(card))
-        return preferences
+        clips_by_key = library.clip_map()
+        changed: list[Card] = []
+        for card in library.all_unlimited():
+            old_audio = dict(card.audio)
+            old_hash = card.synced_hash
+            valid_audio(card, clips_by_key)
+            if card.audio != old_audio or card.synced_hash != old_hash:
+                changed.append(card)
+        if changed:
+            library.save_many(changed)
+        if configuration.preferences.text_model != previous_text_model:
+            start_warm()
+        return configuration.preferences
 
     @app.post("/api/parse")
     async def parse(paste: Paste):
@@ -406,6 +476,9 @@ def create_app(
             card.sync_identity = ""
             card.note_id = None
             card.synced_hash = ""
+            card.decision = "ask"
+        elif card.synced_hash and card.content_hash() != card.synced_hash:
+            card.synced_hash = ""
         card.audio_errors.clear()
         return library.save(valid_audio(card))
 
@@ -422,7 +495,7 @@ def create_app(
             raise ValueError(
                 "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
             )
-        cards = [valid_audio(card) for card in selected(selection.ids)]
+        cards = valid_cards(selected(selection.ids))
         if any(not card.ready() for card in cards):
             raise ValueError("Finish or remove invalid cards before generating audio.")
 
@@ -509,7 +582,7 @@ def create_app(
             or sorted(set(selection.ids)) != sync_ticket.get("ids")
         ):
             raise ValueError("Start Anki sync and confirm it completed before sending notes.")
-        cards = [valid_audio(card) for card in selected(selection.ids)]
+        cards = valid_cards(selected(selection.ids))
         preferences = configuration.preferences.model_copy(deep=True)
         profile = sync_ticket["profile"]
         sync_ticket.clear()

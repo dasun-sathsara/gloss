@@ -1,3 +1,4 @@
+import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { useState } from "react";
 import type { AnkiStatus, Preferences } from "../lib";
 import { Choice } from "./Choice";
@@ -7,6 +8,18 @@ import { Checkbox } from "./ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import { Field, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
+
+type NumericKey = "word_cap" | "tts_rpm" | "call_budget" | "estimated_usd_per_word";
+
+const numericSpecs: Record<
+  NumericKey,
+  { label: string; min: number; max: number; integer: boolean }
+> = {
+  word_cap: { label: "Word cap", min: 1, max: 100, integer: true },
+  tts_rpm: { label: "Speech requests per minute", min: 1, max: 120, integer: true },
+  call_budget: { label: "Audio clip ceiling per run", min: 4, max: 1000, integer: true },
+  estimated_usd_per_word: { label: "Estimated USD per word", min: 0, max: 1, integer: false },
+};
 
 export function Settings({
   settings,
@@ -32,6 +45,12 @@ export function Settings({
   busy: boolean;
 }) {
   const [draft, setDraft] = useState(settings);
+  const [numericText, setNumericText] = useState<Record<NumericKey, string>>(() => ({
+    word_cap: String(settings.word_cap),
+    tts_rpm: String(settings.tts_rpm),
+    call_budget: String(settings.call_budget),
+    estimated_usd_per_word: String(settings.estimated_usd_per_word),
+  }));
   const [subjects, setSubjects] = useState(settings.seed_decks.join(", "));
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
@@ -39,6 +58,21 @@ export function Settings({
   const change = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((old) => ({ ...old, [key]: value }));
   const locked = busy || saving;
+  const canAddDeck =
+    !locked && anki.connected && !!name.trim() && draft.deck_parent === settings.deck_parent;
+  const addDeck = async () => {
+    if (!canAddDeck) return;
+    setSaving(true);
+    setError("");
+    try {
+      await onAddDeck(name.trim());
+      setName("");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not add deck.");
+    } finally {
+      setSaving(false);
+    }
+  };
   const input = (
     key: keyof Preferences,
     label: string,
@@ -51,8 +85,15 @@ export function Settings({
         disabled={locked}
         type={numeric ? "number" : "text"}
         {...numeric}
-        value={String(draft[key])}
-        onChange={(event) => change(key, numeric ? Number(event.target.value) : event.target.value)}
+        value={numeric ? numericText[key as NumericKey] : String(draft[key])}
+        onChange={(event) => {
+          if (numeric) {
+            const raw = event.target.value;
+            setNumericText((old) => ({ ...old, [key]: raw }));
+          } else {
+            change(key, event.target.value);
+          }
+        }}
       />
     </Field>
   );
@@ -61,11 +102,35 @@ export function Settings({
       className="settings-body"
       onSubmit={async (event) => {
         event.preventDefault();
+        const parsedNumbers: Partial<Record<NumericKey, number>> = {};
+        const keys: NumericKey[] =
+          audioProvider === "woof"
+            ? ["word_cap", "call_budget"]
+            : ["word_cap", "tts_rpm", "call_budget", "estimated_usd_per_word"];
+        for (const key of keys) {
+          const spec = numericSpecs[key];
+          const raw = numericText[key].trim();
+          const value = Number(raw);
+          if (
+            !raw ||
+            !Number.isFinite(value) ||
+            (spec.integer && !Number.isInteger(value)) ||
+            value < spec.min ||
+            value > spec.max
+          ) {
+            setError(
+              `${spec.label} must be ${spec.integer ? "a whole number" : "a number"} between ${spec.min} and ${spec.max}.`,
+            );
+            return;
+          }
+          parsedNumbers[key] = value;
+        }
         setSaving(true);
         setError("");
         try {
           await onSave({
             ...draft,
+            ...parsedNumbers,
             seed_decks: subjects
               .split(",")
               .map((value) => value.trim())
@@ -129,7 +194,7 @@ export function Settings({
       </Field>
       {!audioReady && (
         <p className="help">
-          Audio needs a Google Cloud project or <code>WOOF_MODEL_DIR</code> in the config
+          Audio needs a Google Cloud project or <code>WOOF_MODEL_DIR</code> in the config{" "}
           <code>.env</code>. Words generate without it.
         </p>
       )}
@@ -158,30 +223,15 @@ export function Settings({
               disabled={locked}
               value={name}
               onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void addDeck();
+                }
+              }}
             />
           </Field>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={
-              locked ||
-              !anki.connected ||
-              !name.trim() ||
-              draft.deck_parent !== settings.deck_parent
-            }
-            onClick={async () => {
-              setSaving(true);
-              setError("");
-              try {
-                await onAddDeck(name.trim());
-                setName("");
-              } catch (error) {
-                setError(error instanceof Error ? error.message : "Could not add deck.");
-              } finally {
-                setSaving(false);
-              }
-            }}
-          >
+          <Button type="button" variant="outline" disabled={!canAddDeck} onClick={addDeck}>
             Add deck
           </Button>
         </div>
@@ -215,6 +265,7 @@ export function Settings({
             {audioProvider !== "woof" &&
               input("estimated_usd_per_word", "Estimated USD per word", {
                 min: 0,
+                max: 1,
                 step: 0.0001,
               })}
           </div>
@@ -242,5 +293,3 @@ export function Settings({
     </form>
   );
 }
-
-import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";

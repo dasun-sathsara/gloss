@@ -8,7 +8,6 @@ from gloss.config import Configuration, Preferences
 from gloss.core.models import Entry
 from gloss.core.ports import ProviderError
 from gloss.providers.openai_compat import ChatCompletionsLanguageModel
-from gloss.providers.text import TEXT_SCHEMA
 
 BASE = "https://proxy.example/v1"
 ENTRY = Entry(index=0, word="serendipity", hint="")
@@ -34,22 +33,6 @@ def model(**kwargs) -> ChatCompletionsLanguageModel:
     return ChatCompletionsLanguageModel(BASE, "sk-test", Preferences(**kwargs))
 
 
-def test_schema_is_self_contained():
-    assert "$ref" not in json.dumps(TEXT_SCHEMA)
-    assert "$defs" not in TEXT_SCHEMA
-    item = TEXT_SCHEMA["properties"]["items"]["items"]
-    assert set(item["required"]) == {
-        "index",
-        "valid",
-        "word",
-        "pos",
-        "meaning",
-        "sinhala",
-        "example1",
-        "example2",
-    }
-
-
 async def test_generate_sends_schema_and_parses_reply():
     with respx.mock(base_url=BASE) as router:
         route = router.post("/chat/completions").mock(
@@ -68,75 +51,61 @@ async def test_generate_sends_schema_and_parses_reply():
     assert body["stream"] is False
     assert body["response_format"]["type"] == "json_schema"
     assert body["response_format"]["json_schema"]["strict"] is True
+    schema = body["response_format"]["json_schema"]["schema"]
+    assert "$ref" not in json.dumps(schema)
+    assert "$defs" not in schema
+    assert set(schema["properties"]["items"]["items"]["required"]) == {
+        "index",
+        "valid",
+        "word",
+        "pos",
+        "meaning",
+        "sinhala",
+        "example1",
+        "example2",
+    }
     assert route.calls[0].request.headers["authorization"] == "Bearer sk-test"
 
 
-async def test_auth_failure_is_fatal():
-    with respx.mock(base_url=BASE) as router:
-        router.post("/chat/completions").mock(return_value=httpx.Response(401))
-        value = model()
-        try:
-            with pytest.raises(ProviderError) as caught:
-                await value.generate([ENTRY])
-        finally:
-            await value.aclose()
-    assert caught.value.fatal
-
-
-async def test_rate_limit_and_server_errors_recover():
-    with respx.mock(base_url=BASE) as router:
-        router.post("/chat/completions").mock(return_value=httpx.Response(429))
-        value = model()
-        try:
-            with pytest.raises(ProviderError) as limited:
-                await value.generate([ENTRY])
-        finally:
-            await value.aclose()
-    assert limited.value.rate_limited
-
-    with respx.mock(base_url=BASE) as router:
-        router.post("/chat/completions").mock(return_value=httpx.Response(503))
-        value = model()
-        try:
-            with pytest.raises(ProviderError) as broken:
-                await value.generate([ENTRY])
-        finally:
-            await value.aclose()
-    assert broken.value.retryable
-    assert not broken.value.fatal
-
-
-async def test_timeout_then_success_retries_once():
-    with respx.mock(base_url=BASE) as router:
-        route = router.post("/chat/completions").mock(
-            side_effect=[httpx.ReadTimeout("cold start"), httpx.Response(200, json=reply())]
-        )
-        value = model()
-        try:
-            results = await value.generate([ENTRY])
-        finally:
-            await value.aclose()
-    assert results[0].word == "serendipity"
-    assert route.call_count == 2
-
-
-async def test_timeout_is_retryable():
-    with respx.mock(base_url=BASE) as router:
-        router.post("/chat/completions").mock(side_effect=httpx.ReadTimeout("slow"))
-        value = model()
-        try:
-            with pytest.raises(ProviderError) as caught:
-                await value.generate([ENTRY])
-        finally:
-            await value.aclose()
-    assert caught.value.retryable
-
-
-def test_base_url_and_key_are_required(tmp_path):
+async def test_endpoint_retries_cold_timeout_and_classifies_errors():
     with pytest.raises(ProviderError):
         ChatCompletionsLanguageModel("proxy.example", "sk-test", Preferences())
     with pytest.raises(ProviderError):
         ChatCompletionsLanguageModel(BASE, "", Preferences())
+
+    with respx.mock(base_url=BASE) as router:
+        route = router.post("/chat/completions")
+        value = model()
+        try:
+            route.mock(
+                side_effect=[httpx.ReadTimeout("cold start"), httpx.Response(200, json=reply())]
+            )
+            results = await value.generate([ENTRY])
+            assert results[0].word == "serendipity"
+            assert route.call_count == 2
+
+            route.mock(return_value=httpx.Response(401))
+            with pytest.raises(ProviderError) as auth:
+                await value.generate([ENTRY])
+            assert auth.value.fatal
+
+            route.mock(return_value=httpx.Response(429))
+            with pytest.raises(ProviderError) as limited:
+                await value.generate([ENTRY])
+            assert limited.value.rate_limited
+
+            route.mock(return_value=httpx.Response(503))
+            with pytest.raises(ProviderError) as broken:
+                await value.generate([ENTRY])
+            assert broken.value.retryable
+            assert not broken.value.fatal
+
+            route.mock(side_effect=httpx.ReadTimeout("slow"))
+            with pytest.raises(ProviderError) as timed_out:
+                await value.generate([ENTRY])
+            assert timed_out.value.retryable
+        finally:
+            await value.aclose()
 
 
 async def test_api_generates_without_audio_when_only_the_endpoint_is_configured(
@@ -176,3 +145,24 @@ async def test_api_generates_without_audio_when_only_the_endpoint_is_configured(
             selected = await http.post("/api/audio", json={"ids": [cards[0].id]})
             assert selected.status_code == 400
     app.state.library.close()
+
+
+def test_parse_generated_accepts_top_level_array_and_single_typo_repair():
+    from gloss.providers.text import parse_generated
+
+    entry = Entry(index=4, word="recieve", hint="")
+    item = {
+        "index": 0,
+        "valid": True,
+        "word": "receive",
+        "pos": "verb",
+        "meaning": "To get something.",
+        "sinhala": "ලැබෙනවා",
+        "example1": "Did you receive my message?",
+        "example2": "They will receive the package tomorrow.",
+        "reason": "",
+    }
+    parsed = parse_generated(json.dumps([item]), [entry])
+    assert len(parsed) == 1
+    assert parsed[0].index == 4
+    assert parsed[0].word == "receive"

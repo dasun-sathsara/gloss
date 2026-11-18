@@ -116,10 +116,15 @@ function detailFrom(value: unknown): string {
     if (typeof detail === "string" && detail) return detail;
     if (Array.isArray(detail) && detail.length) {
       const first = detail[0] as { msg?: unknown };
-      if (first && typeof first.msg === "string" && first.msg) return first.msg;
+      if (first && typeof first.msg === "string" && first.msg) {
+        return first.msg.replace(/^Value error,\s*/i, "");
+      }
     }
   }
   return "Check the fields and try again.";
+}
+export function normalizedText(value: string): string {
+  return value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
 }
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {

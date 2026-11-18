@@ -13,11 +13,13 @@ class Library:
         self.media = directory / "media"
         self.media.mkdir(parents=True, exist_ok=True)
         database = directory / "library.sqlite3"
-        self.db = sqlite3.connect(database)
+        self.db = sqlite3.connect(database, timeout=10.0)
         if sys.platform != "win32":
             with contextlib.suppress(OSError):
                 os.chmod(database, 0o600)
         self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA busy_timeout=5000")
+        self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS cards (id TEXT PRIMARY KEY, data TEXT NOT NULL)"
         )
@@ -55,6 +57,12 @@ class Library:
             )
         ]
 
+    def all_unlimited(self) -> list[Card]:
+        return [
+            Card.model_validate_json(row[0])
+            for row in self.db.execute("SELECT data FROM cards ORDER BY rowid DESC")
+        ]
+
     def count(self) -> int:
         return self.db.execute("SELECT COUNT(*) FROM cards").fetchone()[0]
 
@@ -65,6 +73,14 @@ class Library:
     def clip(self, key: str) -> str | None:
         row = self.db.execute("SELECT filename FROM clips WHERE key=?", (key,)).fetchone()
         return row[0] if row and (self.media / row[0]).is_file() else None
+
+    def clip_map(self) -> dict[str, str]:
+        files = {entry.name for entry in os.scandir(self.media) if entry.is_file()}
+        return {
+            key: filename
+            for key, filename in self.db.execute("SELECT key, filename FROM clips")
+            if filename in files
+        }
 
     def save_clip(self, key: str, data: bytes) -> str:
         name = f"gloss_{key}.mp3"

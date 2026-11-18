@@ -6,7 +6,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:8777",
     browserName: "chromium",
-    channel: "chromium",
+    channel: process.env.PLAYWRIGHT_CHANNEL || "chromium",
     trace: "retain-on-failure",
   },
   webServer: {

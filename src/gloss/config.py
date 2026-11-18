@@ -169,10 +169,13 @@ class Configuration:
         except ValidationError as exc:
             self.quarantine_settings(path, exc)
             self.preferences = Preferences(**defaults)
-        if self.environment.woof_model_dir:
-            self.preferences.audio_engine = f"woof-{self.environment.woof_voice}-v2"
-        else:
-            self.preferences.audio_engine = ""
+        self.apply_audio_engine(self.preferences)
+
+    def apply_audio_engine(self, preferences: Preferences) -> Preferences:
+        preferences.audio_engine = (
+            f"woof-{self.environment.woof_voice}-v2" if self.environment.woof_model_dir else ""
+        )
+        return preferences
 
     @staticmethod
     def quarantine_settings(path: Path, exc: Exception) -> None:
@@ -182,9 +185,12 @@ class Configuration:
             path.replace(path.with_name(path.name + ".bak"))
 
     def save(self, preferences: Preferences) -> None:
+        self.apply_audio_engine(preferences)
         path = self.directory / "settings.json"
         temporary = path.with_suffix(".tmp")
         temporary.write_text(preferences.model_dump_json(indent=2), encoding="utf-8")
-        temporary.chmod(0o600)
+        if sys.platform != "win32":
+            with contextlib.suppress(OSError):
+                temporary.chmod(0o600)
         temporary.replace(path)
         self.preferences = preferences

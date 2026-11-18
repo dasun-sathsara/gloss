@@ -1,5 +1,27 @@
 import { expect, test } from "@playwright/test";
 
+function tone() {
+  const rate = 8000;
+  const samples = rate * 3;
+  const wav = Buffer.alloc(44 + samples * 2);
+  wav.write("RIFF");
+  wav.writeUInt32LE(wav.length - 8, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) {
+    wav.writeInt16LE(Math.round(Math.sin((i / rate) * 440 * Math.PI * 2) * 1000), 44 + i * 2);
+  }
+  return wav;
+}
+
 test("compact batch editing, accessible choices, audio, and persistence", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -109,6 +131,27 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await expect(editor.getByRole("button", { name: "Save changes" })).toBeDisabled();
   // Saving the edit re-records only the changed clip.
   await expect(curious.getByText("4/4", { exact: true })).toBeVisible({ timeout: 20000 });
+  const example1Field = editor.getByRole("textbox", { name: "Example 1", exact: true });
+  const originalExample1 = await example1Field.inputValue();
+  await example1Field.fill("Temporary unsaved example.");
+  await expect(
+    curious.locator(".status-column").getByText("Unsaved", { exact: true }),
+  ).toBeVisible();
+  const playWord = editor.getByRole("button", { name: "Play word audio", exact: true });
+  const mediaHandler = (route: Parameters<Parameters<typeof page.route>[1]>[0]) =>
+    route.fulfill({ contentType: "audio/wav", body: tone() });
+  await page.route("**/media/gloss_*.mp3", mediaHandler);
+  await playWord.click();
+  const stopWord = editor.getByRole("button", { name: "Stop word audio", exact: true });
+  await expect(stopWord).toBeVisible();
+  await expect(example1Field).toHaveValue("Temporary unsaved example.");
+  await expect(editor.getByRole("button", { name: "Save changes" })).toBeEnabled();
+  await stopWord.click();
+  await expect(playWord).toBeVisible();
+  await page.unroute("**/media/gloss_*.mp3", mediaHandler);
+  await editor.getByRole("button", { name: "Discard", exact: true }).click();
+  await expect(example1Field).toHaveValue(originalExample1);
+  await expect(editor.getByRole("button", { name: "Save changes" })).toBeDisabled();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("combobox", { name: "Appearance", exact: true }).click();
   await page.getByRole("option", { name: "Dark", exact: true }).click();
@@ -130,6 +173,18 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator(".word-row")).toHaveCount(3);
   await expect(page.locator(".word-row").getByText("4/4", { exact: true })).toHaveCount(2);
+  await invalid.getByRole("button", { name: "Edit", exact: true }).click();
+  const verifyBox = page.getByRole("checkbox", {
+    name: "I verified this word and completed its fields.",
+    exact: true,
+  });
+  await verifyBox.check();
+  await expect(verifyBox).toBeVisible();
+  await page.locator(".word-editor").getByRole("button", { name: "Discard", exact: true }).click();
+  await page
+    .locator(".word-editor")
+    .getByRole("button", { name: "Close editor", exact: true })
+    .click();
   await page.reload();
   await expect(page.locator(".word-row")).toHaveCount(3);
   await expect(deck).toHaveText("Science");

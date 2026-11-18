@@ -14,6 +14,7 @@ def configured(tmp_path, **environment) -> Configuration:
     configuration = Configuration(tmp_path)
     for key, value in environment.items():
         setattr(configuration.environment, key, value)
+    configuration.apply_audio_engine(configuration.preferences)
     return configuration
 
 
@@ -243,7 +244,7 @@ async def test_bootstrap_reports_provider_and_audio_for_woof_and_google(tmp_path
     assert data["voices"] == list(VOICES)
 
 
-async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path):
+async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path, card):
     configuration = configured(
         tmp_path / "ready",
         google_cloud_project="",
@@ -277,12 +278,74 @@ async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path):
         google_cloud_project="",
         text_api_base="https://proxy.example/v1",
         text_api_key="sk-test",
-        woof_model_dir="",
+        woof_model_dir=str(tmp_path / "woof"),
+        woof_voice="juno",
     )
+    app = create_app(down)
+    from gloss.core.orchestrator import clip_key
+
+    key = clip_key(down.preferences, card.word)
+    filename = app.state.library.save_clip(key, b"mp3-bytes")
+    card.audio = {"word": filename}
+    app.state.library.save(card)
+
     with respx.mock(base_url="https://proxy.example") as router:
-        router.post("/v1/chat/completions").mock(return_value=httpx.Response(503))
-        app = create_app(down)
+        route = router.post("/v1/chat/completions").mock(
+            side_effect=[
+                httpx.Response(503),
+                httpx.Response(200, json={"choices": []}),
+            ]
+        )
         async with app.router.lifespan_context(app), client(app) as http:
             data = await settled(http)
-    assert data["text_health"] == "down"
-    assert "503" in data["text_health_detail"]
+            assert data["text_health"] == "down"
+            assert "503" in data["text_health_detail"]
+
+            http.headers["Origin"] = "http://127.0.0.1:8766"
+            prefs = down.preferences.model_dump()
+            prefs["audio_engine"] = ""
+            prefs["text_model"] = "gemini-3.8-pro"
+            saved = await http.put("/api/settings", json=prefs)
+            assert saved.status_code == 200
+            assert saved.json()["audio_engine"] == "woof-juno-v2"
+            assert app.state.library.get(card.id).audio == {"word": filename}
+            for _ in range(200):
+                health = (await http.get("/api/health")).json()
+                if health["text_health"] == "ready":
+                    break
+                await asyncio.sleep(0.01)
+            assert health["text_health"] == "ready"
+            assert route.call_count == 2
+
+
+async def test_patch_card_resets_decision_on_identity_change_and_clears_hash_on_edit(
+    tmp_path, card
+):
+    app = create_app(Configuration(tmp_path), demo=True)
+    card.note_id = 42
+    card.sync_identity = card.base_identity()
+    card.synced_hash = card.content_hash()
+    card.decision = "overwrite"
+    app.state.library.save(card)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://127.0.0.1:8766",
+            headers={"Origin": "http://127.0.0.1:8766"},
+        ) as http,
+    ):
+        payload = card.model_dump(include=set(CardFields))
+        payload["meaning"] = "Updated account."
+        edited = await http.patch(f"/api/cards/{card.id}", json=payload)
+        assert edited.status_code == 200
+        assert edited.json()["note_id"] == 42
+        assert edited.json()["synced_hash"] == ""
+        assert edited.json()["decision"] == "overwrite"
+
+        payload["word"] = "recording"
+        renamed = await http.patch(f"/api/cards/{card.id}", json=payload)
+        assert renamed.status_code == 200
+        assert renamed.json()["note_id"] is None
+        assert renamed.json()["synced_hash"] == ""
+        assert renamed.json()["decision"] == "ask"

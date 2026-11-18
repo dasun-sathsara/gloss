@@ -16,6 +16,7 @@ class ChatCompletionsLanguageModel:
         preferences: Preferences,
         max_output_tokens: int = 8192,
         timeout: float = 240.0,
+        client: httpx.AsyncClient | None = None,
     ):
         if not base_url.startswith(("http://", "https://")):
             raise ProviderError(
@@ -31,14 +32,15 @@ class ChatCompletionsLanguageModel:
         self.model = preferences.text_model
         self.max_output_tokens = max_output_tokens
         self.last_usage: dict = {}
+        self.timeout = httpx.Timeout(timeout, connect=15.0)
+        self._owns_client = client is None
         # No hidden retries: gloss already repairs failed entries, and a slow
         # endpoint must fail before the client gives up on the whole batch.
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(timeout, connect=15.0), trust_env=False
-        )
+        self.client = client or httpx.AsyncClient(timeout=self.timeout, trust_env=False)
 
     async def aclose(self) -> None:
-        await self.client.aclose()
+        if self._owns_client:
+            await self.client.aclose()
 
     async def _post(self, body: dict) -> httpx.Response:
         # A cold router can sit on the first request for a minute, and its proxy
@@ -50,7 +52,12 @@ class ChatCompletionsLanguageModel:
                     self.url,
                     json=body,
                     headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=self.timeout,
                 )
+            except httpx.InvalidURL as exc:
+                raise ProviderError(
+                    "TEXT_API_BASE is not a valid URL. Check the config .env.", fatal=True
+                ) from exc
             except httpx.TimeoutException as exc:
                 if attempt:
                     raise ProviderError(

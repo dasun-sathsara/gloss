@@ -41,7 +41,7 @@ _worker_model = None
 
 
 def default_workers() -> int:
-    return max(1, os.process_cpu_count() or os.cpu_count() or 1)
+    return min(8, max(1, os.process_cpu_count() or os.cpu_count() or 1))
 
 
 def validate_model(model_dir: Path, voice: str) -> None:
@@ -79,13 +79,15 @@ def trim_and_level(audio):
     import numpy as np
 
     samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if not np.all(np.isfinite(samples)):
+        samples = np.nan_to_num(samples, nan=0.0, posinf=0.0, neginf=0.0)
     window = max(1, int(0.01 * WOOF_SAMPLE_RATE))
     if samples.size >= window:
         frames = samples[: samples.size - samples.size % window].reshape(-1, window)
         envelope = np.abs(frames).max(axis=1)
         # Ignore anything 34 dB below the loudest frame, which is room tone in
         # practice, and keep a short breath around the speech.
-        threshold = max(0.01, float(envelope.max()) * 0.02) if envelope.size else 0.01
+        threshold = max(1e-4, float(envelope.max()) * 0.02) if envelope.size else 1e-4
         loud = np.flatnonzero(envelope > threshold)
         if loud.size:
             start = max(0, loud[0] * window - int(LEAD_SECONDS * WOOF_SAMPLE_RATE))

@@ -306,3 +306,18 @@ async def test_unmetered_audio_runs_full_concurrency_without_rate_limit(library,
     assert state["peak"] == 6
     assert service.rate is None
     assert stats == {"clips": 8, "ready": 8, "failed": 0, "skipped": 0}
+
+
+def test_parse_entries_strips_list_markers_and_preserves_hyphens():
+    from gloss.core.parsing import parse_entries
+
+    entries = parse_entries(
+        "1. record\n- curious\n2) resilient: able to recover\nwell-known\n* 3. lucid"
+    )
+    assert [(entry.word, entry.hint) for entry in entries] == [
+        ("record", ""),
+        ("curious", ""),
+        ("resilient", "able to recover"),
+        ("well-known", ""),
+        ("3. lucid", ""),
+    ]
