@@ -232,11 +232,7 @@ def start(uv: str, frontend: Path) -> bool:
                 cwd=ROOT,
                 stdout=log,
                 stderr=log,
-                **(
-                    {"creationflags": subprocess.CREATE_NO_WINDOW}
-                    if sys.platform == "win32"
-                    else {}
-                ),
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
             )
     except Exception:
         logging.exception("Could not start Gloss")
