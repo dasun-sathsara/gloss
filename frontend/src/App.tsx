@@ -91,6 +91,7 @@ export default function App() {
       </a>
       <header className="app-header">
         <a href="/" className="brand">
+          <img src="/favicon.svg" alt="" className="brand-mark" width={28} height={28} />
           Gloss
         </a>
         <Tabs value={g.view} onValueChange={(value) => g.changeView(value as "review" | "library")}>
