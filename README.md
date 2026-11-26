@@ -77,12 +77,15 @@ In that mode, Ctrl+Enter or Cmd+Enter also starts generation.
 
 In automatic mode, Gloss can record audio for the word, definition, and both examples
 right after it writes the words. You can keep editing while audio records. Saving an edit re-records only the
-changed clip. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
+changed clip. Changing the audio engine or voice keeps existing clips and applies to new
+recordings. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
 audio in Settings to record only when you choose **Prepare audio**. New words join the
 unsynced words already in the batch for the same deck.
 Choose **Sync to Anki** when the selected cards are ready. Check the card count and target
-deck before saving. If Anki stops partway, use **Retry remaining cards** in the same
-Anki profile. For conflicting meanings, keep both, overwrite, or skip. Updates preserve
+deck before saving. If Anki stops partway, **Retry remaining cards** resumes in the original
+Anki profile and decks, even after you reload Gloss. It does not resend cards already saved.
+If you no longer want to finish that save, **Discard retry** leaves both libraries intact.
+For conflicting meanings, keep both, overwrite, or skip. Updates preserve
 the existing note and review history.
 Changing a synced word or part of speech creates a new identity and leaves the old note in Anki.
 

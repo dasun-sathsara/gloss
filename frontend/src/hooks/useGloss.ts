@@ -22,14 +22,9 @@ import {
   type Preferences,
   type Progress,
   type Summary,
+  type SyncRecovery,
 } from "../lib";
 
-type SyncRecovery = {
-  saved: number;
-  ids: string[];
-  profile: string;
-  decks: Record<string, string>;
-};
 function clearReplyDraft(code?: string) {
   try {
     const key = "gloss-manual-reply";
@@ -48,8 +43,11 @@ export function useGloss() {
   const [manual, setManual] = useState<ManualRun | null>(null);
   const [recovery, setRecovery] = useState<SyncRecovery | null>(null);
   const retryProfile = useRef<string | undefined>(undefined);
+  const recoveryId = useRef<string | undefined>(undefined);
   const syncIds = useRef<string[]>([]);
-  const [nextCopyCode, setNextCopyCode] = useState("");
+  const [manualFocusCode, setManualFocusCode] = useState("");
+  const wordInput = useRef<HTMLTextAreaElement>(null);
+  const restoreWordFocus = useRef(false);
   const [manualError, setManualError] = useState<{ message: string; canCorrect: boolean } | null>(
     null,
   );
@@ -74,7 +72,10 @@ export function useGloss() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [moveParent, setMoveParent] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeEvent] = useState<{ message: string } | null>(null);
+  const setNotice = useCallback((message: string) => {
+    setNoticeEvent(message ? { message } : null);
+  }, []);
   const [error, setError] = useState("");
   const [confirmCap, setConfirmCap] = useState(false);
   const [syncDialog, setSyncDialog] = useState<{
@@ -102,6 +103,12 @@ export function useGloss() {
   dirtyRef.current = dirty;
   const busy = pending || !!job;
   const stage = progress?.stage ?? job?.stage ?? job?.kind;
+  useEffect(() => {
+    if (!busy && !manual && wordInput.current && restoreWordFocus.current) {
+      restoreWordFocus.current = false;
+      wordInput.current.focus();
+    }
+  }, [busy, manual, view]);
   const audioRunning = !!job && stage === "audio";
   // Words stay editable while audio records. The server keeps edits and drops stale clips.
   const editLocked = pending || (!!job && !audioRunning);
@@ -189,6 +196,7 @@ export function useGloss() {
         setCards(value.cards);
         setJob(value.active_job);
         setManual(value.manual);
+        setRecovery(value.sync_recovery);
         setDeck(
           (old) =>
             old ||
@@ -210,7 +218,9 @@ export function useGloss() {
             ? restored
             : value.cards.filter((card) => !card.note_id).slice(0, 100);
         setBatchIds(new Set(batch.map((card) => card.id)));
-        setSelected(new Set(batch.filter(isReady).map((card) => card.id)));
+        setSelected(
+          new Set(value.sync_recovery?.ids ?? batch.filter(isReady).map((card) => card.id)),
+        );
         const restoredDeck = manualDeck || batch[0]?.deck;
         if (restoredDeck) setDeck(restoredDeck);
       })
@@ -349,7 +359,9 @@ export function useGloss() {
         setRecovery((old) => {
           if (!old?.ids.includes(card.id)) return old;
           const ids = old.ids.filter((id) => id !== card.id);
-          return ids.length ? { ...old, ids, saved: old.saved + 1 } : null;
+          const decks = { ...old.decks };
+          delete decks[card.id];
+          return ids.length ? { ...old, ids, decks, saved: old.saved + 1 } : null;
         });
       }
       if (job.kind === "text" && !removed.current.has(card.id)) {
@@ -377,9 +389,14 @@ export function useGloss() {
       setConflicts(JSON.parse((event as MessageEvent).data));
     });
     eventSource.addEventListener("sync_scope", (event) => {
-      const scope = JSON.parse((event as MessageEvent).data) as { ids: string[]; profile: string };
+      const scope = JSON.parse((event as MessageEvent).data) as {
+        ids: string[];
+        profile: string;
+        recovery_id?: string | null;
+      };
       syncIds.current = scope.ids;
       retryProfile.current = scope.profile;
+      recoveryId.current = scope.recovery_id ?? undefined;
     });
     eventSource.addEventListener("sync_remaining", (event) => {
       const remaining = JSON.parse((event as MessageEvent).data) as SyncRecovery;
@@ -415,6 +432,8 @@ export function useGloss() {
           eventSource.close();
           setJob(null);
           setProgress(null);
+          setRecovery(value.sync_recovery);
+          if (value.sync_recovery) setSelected(new Set(value.sync_recovery.ids));
           setCards((old) => {
             const localById = new Map(old.map((card) => [card.id, card]));
             return value.cards
@@ -437,7 +456,7 @@ export function useGloss() {
       eventSource.close();
       source.current = null;
     };
-  }, [job, refreshAnki, receiveCard]);
+  }, [job, refreshAnki, receiveCard, setNotice]);
 
   useEffect(() => {
     if (job || pending || !audioQueue.size || !bootstrap?.audio_ready) return;
@@ -610,6 +629,7 @@ export function useGloss() {
       );
       setBatchIds(keep);
       setSelected((old) => new Set([...old].filter((id) => keep.has(id))));
+      setManualFocusCode(run.code);
       setManual(run);
       setManualError(null);
       setText("");
@@ -639,7 +659,7 @@ export function useGloss() {
         (old) => new Set([...old, ...result.cards.filter(isReady).map((card) => card.id)]),
       );
       clearReplyDraft(manual?.code);
-      setNextCopyCode(result.manual.code);
+      setManualFocusCode(result.manual.code);
       setManual(result.manual);
       setSearch("");
       setNotice(
@@ -654,6 +674,7 @@ export function useGloss() {
       if (!manual) return;
       await api("/manual/" + manual.code, "DELETE");
       clearReplyDraft(manual?.code);
+      restoreWordFocus.current = true;
       setManual(null);
     });
   const selection = useMemo(() => cards.filter((card) => selected.has(card.id)), [cards, selected]);
@@ -709,6 +730,7 @@ export function useGloss() {
     const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", {
       ids,
       expected_profile: retryProfile.current,
+      recovery_id: recoveryId.current,
     });
     setSyncDialog({ ids, ...pull });
     setAllowMissing(false);
@@ -718,11 +740,13 @@ export function useGloss() {
       await flush();
       const ids = retryIds ?? readySelection.map((card) => card.id);
       retryProfile.current = retryIds ? recovery?.profile : undefined;
+      recoveryId.current = retryIds ? recovery?.id : undefined;
       syncIds.current = ids;
       if (retryIds) setSelected(new Set(ids));
       const found = await api<Conflict[]>("/anki/conflicts", "POST", {
         ids,
         expected_profile: retryProfile.current,
+        recovery_id: recoveryId.current,
       });
       const byId = new Map(cardsRef.current.map((card) => [card.id, card]));
       const hasAsk = found.some((conflict) => byId.get(conflict.id)?.decision === "ask");
@@ -763,7 +787,18 @@ export function useGloss() {
       setConflicts([]);
     });
 
-  const missing = useMemo(() => readySelection.some((card) => !hasAudio(card)), [readySelection]);
+  const discardRecovery = () =>
+    perform(async () => {
+      if (!recovery) return;
+      await api("/anki/recovery/" + recovery.id, "DELETE");
+      setRecovery(null);
+    });
+  const syncMissing = syncDialog
+    ? syncDialog.ids.some((id) => {
+        const card = cards.find((value) => value.id === id);
+        return !card || !hasAudio(card);
+      })
+    : false;
   const missingCount = useMemo(
     () => readySelection.reduce((total, card) => total + missingClips(card), 0),
     [readySelection],
@@ -844,6 +879,7 @@ export function useGloss() {
     cleanSnapshots.current.clear();
     setBootstrap(value);
     setCards(value.cards);
+    setRecovery(value.sync_recovery);
     setSettingsOpen(false);
     await refreshAnki();
   };
@@ -885,7 +921,6 @@ export function useGloss() {
     moveParent,
     setMoveParent,
     notice,
-    setNotice,
     error,
     setError,
     confirmCap,
@@ -908,7 +943,8 @@ export function useGloss() {
     chooseGenerationMode,
     manual,
     manualError,
-    nextCopyCode,
+    manualFocusCode,
+    wordInput,
     startManual,
     importManual,
     closeManual,
@@ -918,7 +954,8 @@ export function useGloss() {
     visibleCards,
     audio,
     beginSync,
-    missing,
+    syncMissing,
+    discardRecovery,
     remove,
     retry,
     listen,

@@ -6,7 +6,9 @@ import httpx
 import respx
 
 from gloss.api.app import create_app
-from gloss.config import VOICES, WOOF_VOICES, Configuration
+from gloss.config import VOICES, WOOF_VOICES, Configuration, Preferences
+from gloss.core.orchestrator import clip_key
+from gloss.core.ports import ProviderError
 
 
 def configured(tmp_path, **environment) -> Configuration:
@@ -131,6 +133,132 @@ async def test_sync_requires_pull_ticket_and_same_profile(tmp_path, card):
         await app.state.jobs.get(response.json()["id"]).task
         gateway.sync.assert_awaited_once()
         assert (await http.post("/api/anki/sync", json=selection)).status_code == 400
+
+
+async def test_legacy_google_audio_survives_woof_default_and_settings_save(tmp_path, card):
+    legacy = Preferences(audio_provider="google", voice="Puck")
+    (tmp_path / "settings.json").write_text(
+        legacy.model_dump_json(exclude={"audio_provider", "woof_voice"})
+    )
+    app = create_app(configured(tmp_path, google_cloud_project="", woof_model_dir=""))
+    library = app.state.library
+    audio = {
+        kind: library.save_clip(clip_key(legacy, card.clip_text(kind)), b"test mp3")
+        for kind in ("word", "meaning")
+    }
+    card.audio = audio
+    library.save(card)
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = str(http.base_url).rstrip("/")
+        state = (await http.get("/api/bootstrap")).json()
+        assert state["audio_provider"] == "woof"
+        assert not state["audio_ready"]
+        assert state["cards"][0]["audio"] == audio
+        assert (await http.get("/media/" + audio["word"])).content == b"test mp3"
+
+        settings = {**state["settings"], "theme": "dark"}
+        assert (await http.put("/api/settings", json=settings)).status_code == 200
+        assert library.get(card.id).audio == audio
+        assert (await http.get("/api/bootstrap")).json()["cards"][0]["audio"] == audio
+
+        result = await http.patch(
+            f"/api/cards/{card.id}", json={**card.model_dump(), "meaning": "A new definition."}
+        )
+        assert result.status_code == 200
+        assert result.json()["audio"] == {"word": audio["word"]}
+        assert library.get(card.id).audio == {"word": audio["word"]}
+
+
+async def test_anki_recovery_survives_restart_and_enforces_retry_scope(tmp_path, card):
+    first = card.model_copy(update={"deck": "Gloss::General"})
+    second = card.model_copy(update={"id": "second", "word": "second", "deck": "Gloss::Science"})
+    profile = "Learner"
+    failing = True
+    written = []
+
+    async def anki(action, **kwargs):
+        if action == "getActiveProfile":
+            return profile
+        if action == "deckNames":
+            return ["Gloss::General", "Gloss::Science"]
+        if action == "findNotes":
+            return []
+        if action == "addNote":
+            deck = kwargs["note"]["deckName"]
+            if failing and deck == second.deck:
+                raise ProviderError("Anki stopped.")
+            written.append(deck)
+            return 100 + len(written)
+        return None
+
+    def create():
+        app = create_app(Configuration(tmp_path), demo=True)
+        app.state.gateway.client = AsyncMock()
+        app.state.gateway.client.call.side_effect = anki
+        return app
+
+    async def pull(http, ids, **scope):
+        return await http.post("/api/anki/pull", json={"ids": ids, **scope})
+
+    async def sync(http, ids, ticket):
+        return await http.post(
+            "/api/anki/sync", json={"ids": ids, "ticket": ticket, "allow_missing": True}
+        )
+
+    app = create()
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = str(http.base_url).rstrip("/")
+        app.state.library.save_many([first, second])
+        ids = [first.id, second.id]
+        result = await sync(http, ids, (await pull(http, ids)).json()["ticket"])
+        assert result.status_code == 200
+        run_id = result.json()["id"]
+        await app.state.jobs.get(run_id).task
+        assert written == [first.deck]
+
+    failing = False
+    app = create()
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = str(http.base_url).rstrip("/")
+        state = (await http.get("/api/bootstrap")).json()
+        assert state["active_job"] is None
+        assert state["sync_recovery"] == {
+            "id": run_id,
+            "ids": [second.id],
+            "profile": "Learner",
+            "decks": {second.id: second.deck},
+            "saved": 1,
+        }
+
+        assert (await pull(http, [second.id])).status_code == 400
+        assert (await pull(http, ids, recovery_id=run_id)).status_code == 400
+        profile = "Other"
+        assert (await pull(http, [second.id], recovery_id=run_id)).status_code == 400
+        result = await http.post(
+            "/api/anki/conflicts",
+            json={"ids": [second.id], "recovery_id": run_id, "expected_profile": "Other"},
+        )
+        assert result.status_code == 400
+        profile = "Learner"
+        ticket = (await pull(http, [second.id], recovery_id=run_id)).json()["ticket"]
+        assert (await sync(http, ids, ticket)).status_code == 400
+        changed = await http.put(
+            "/api/batch/deck", json={"ids": [second.id], "deck": "Gloss::General"}
+        )
+        assert changed.status_code == 200
+        assert (await sync(http, [second.id], ticket)).status_code == 400
+        assert (await pull(http, [second.id], recovery_id=run_id)).status_code == 400
+        restored = await http.put("/api/batch/deck", json={"ids": [second.id], "deck": second.deck})
+        assert restored.status_code == 200
+        profile = "Other"
+        assert (await sync(http, [second.id], ticket)).status_code == 400
+        profile = "Learner"
+        result = await sync(http, [second.id], ticket)
+        assert result.status_code == 200
+        await app.state.jobs.get(result.json()["id"]).task
+        final = (await http.get("/api/bootstrap")).json()
+        assert final["sync_recovery"] is None
+        assert written == [first.deck, second.deck]
 
 
 async def test_batch_deck_updates_all_words_atomically(tmp_path, card):

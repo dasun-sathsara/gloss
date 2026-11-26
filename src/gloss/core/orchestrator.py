@@ -284,8 +284,8 @@ class Orchestrator:
                 continue
             for kind in (only,) if only else CLIP_KINDS:
                 text = card.clip_text(kind)
-                cached = self.library.clip(clip_key(preferences, text))
-                if cached and card.audio.get(kind) == cached:
+                filename = card.audio.get(kind)
+                if filename and (self.library.media / filename).is_file():
                     ready += 1
                 else:
                     planned.append((card.id, kind, text))

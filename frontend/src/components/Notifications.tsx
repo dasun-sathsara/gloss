@@ -8,12 +8,12 @@ export function Notifications({
   inlineError,
   theme,
 }: {
-  notice: string;
+  notice: { message: string } | null;
   error: string;
   inlineError: boolean;
   theme: Preferences["theme"];
 }) {
-  const previous = useRef({ notice: "", error: "" });
+  const previous = useRef<{ notice: typeof notice; error: string }>({ notice: null, error: "" });
   const activeToast = useRef<string | number | null>(null);
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export function Notifications({
       if (!inlineError) activeToast.current = toast.error(error, { duration: 6500 });
     } else if (!error && notice && notice !== oldNotice) {
       dismissPrevious();
-      activeToast.current = toast(notice);
+      activeToast.current = toast(notice.message);
     } else if (!error && !notice) {
       dismissPrevious();
     }

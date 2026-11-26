@@ -8,7 +8,7 @@ from gloss.config import Preferences, validate_deck_name
 from gloss.core.events import Job
 from gloss.core.models import CLIP_KINDS, Card
 from gloss.core.ports import ProviderError
-from gloss.library.store import Library
+from gloss.library.store import Library, SyncRecovery
 
 
 def quote(value: str) -> str:
@@ -260,6 +260,7 @@ class AnkiGateway:
         preferences: Preferences,
         allow_missing: bool,
         expected_profile: str,
+        recovery: SyncRecovery | None = None,
     ) -> None:
         profile = await self.client.call("getActiveProfile")
         if profile != expected_profile:
@@ -282,7 +283,12 @@ class AnkiGateway:
         unresolved = [item for item in conflicts if by_id.get(item["id"], Card()).decision == "ask"]
         if unresolved:
             job.emit(
-                "sync_scope", {"ids": [card.id for card in cards], "profile": expected_profile}
+                "sync_scope",
+                {
+                    "ids": [card.id for card in cards],
+                    "profile": expected_profile,
+                    "recovery_id": recovery.id if recovery else None,
+                },
             )
             job.emit("conflicts", unresolved)
             return
@@ -298,9 +304,17 @@ class AnkiGateway:
                 )
             keys.add(key)
         to_write = [card for card in cards if card.decision != "skip"]
-        if to_write:
-            job.emit("progress", {"stage": "sync", "completed": 0, "total": len(to_write)})
-        saved = 0
+        if not to_write:
+            return
+        # Save the target scope before the first note write so a restart can resume.
+        if recovery is None:
+            recovery = SyncRecovery(
+                id=job.id,
+                profile=expected_profile,
+                decks={card.id: card.deck for card in to_write},
+            )
+            self.library.save_sync_recovery(recovery)
+        job.emit("progress", {"stage": "sync", "completed": 0, "total": len(to_write)})
         try:
             for completed, card in enumerate(to_write, start=1):
                 if await self.client.call("getActiveProfile") != expected_profile:
@@ -383,22 +397,25 @@ class AnkiGateway:
                 card.note_id = note_id
                 card.sync_identity = key
                 card.synced_hash = card.content_hash()
-                self.library.save(card)
+                remaining = recovery.model_copy(
+                    update={
+                        "decks": {
+                            card_id: deck
+                            for card_id, deck in recovery.decks.items()
+                            if card_id != card.id
+                        },
+                        "saved": recovery.saved + 1,
+                    }
+                )
+                # Record the note ID and remove the card from the retry in one transaction.
+                self.library.save_sync_recovery(remaining, card)
+                recovery = remaining
                 job.emit("card", card.model_dump())
                 job.emit(
                     "progress", {"stage": "sync", "completed": completed, "total": len(to_write)}
                 )
-                saved += 1
         except Exception:
-            job.emit(
-                "sync_remaining",
-                {
-                    "saved": saved,
-                    "profile": expected_profile,
-                    "decks": {card.id: card.deck for card in to_write[saved:]},
-                    "ids": [card.id for card in to_write[saved:]],
-                },
-            )
+            job.emit("sync_remaining", recovery.status())
             raise
         if await self.client.call("getActiveProfile") != expected_profile:
             raise ProviderError(

@@ -47,6 +47,7 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   await expect(page.getByText("Customize prompts", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Start manual generation" }).click();
   await expect(page.getByRole("heading", { name: "Batch 1 of 2", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy full prompt" })).toBeFocused();
   await expect(page.getByText("Change remaining batch size")).toHaveCount(0);
   await page.getByRole("button", { name: "View prompt" }).click();
   await expect(page.getByLabel("Prompt text")).toHaveValue(/Teach English to a Sinhala-speaking/);
@@ -145,11 +146,13 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   );
   await page.getByRole("button", { name: "Validate and finish" }).click();
   await expect(page.getByText("3 words imported.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Done", exact: true })).toBeFocused();
   expect(textRequests).toEqual([]);
   await expect(page.getByText("Local draft", { exact: true }).first()).toBeVisible();
   const done = await run();
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("button", { name: "Start manual generation" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Words", exact: true })).toBeFocused();
   await settings.click();
   await expect(size).toHaveValue("2");
   await size.fill("25");
@@ -280,4 +283,52 @@ test("exact repeats preserve case, distinct hints and order on mobile", async ({
   await page.getByRole("button", { name: "Cancel run" }).click();
   await page.getByRole("button", { name: "End run" }).click();
   await expect(words).toBeVisible();
+});
+
+test("each equal-sized manual import gets its own notification", async ({ page }) => {
+  await page.goto("/");
+  const settings = page.getByRole("button", { name: "Settings", exact: true });
+  await settings.click();
+  const size = page.getByLabel("Words per manual batch");
+  const originalSize = await size.inputValue();
+  await size.fill("1");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  const origin = new URL(page.url()).origin;
+  const headers = { Origin: origin };
+  const state = async () => (await (await page.request.get("/api/bootstrap")).json()) as Bootstrap;
+  try {
+    await page.getByRole("textbox", { name: "Words", exact: true }).fill("curious\nresilient");
+    await page.getByRole("button", { name: "Start manual generation" }).click();
+    const toast = page.locator("[data-sonner-toast]").filter({ hasText: "Added 1 word." });
+    for (const [index, word] of ["curious", "resilient"].entries()) {
+      await expect(
+        page.getByRole("heading", { name: "Batch " + (index + 1) + " of 2" }),
+      ).toBeVisible();
+      const { manual } = await state();
+      await page.getByLabel("JSON reply").fill(
+        JSON.stringify({
+          batch: manual?.code,
+          items: [row(1, word)],
+        }),
+      );
+      await page
+        .getByRole("button", { name: index ? "Validate and finish" : "Validate and continue" })
+        .click();
+      await expect(toast).toBeVisible();
+      if (!index) {
+        await toast.getByRole("button", { name: "Close toast" }).click();
+        await expect(toast).toHaveCount(0);
+      }
+    }
+  } finally {
+    const { manual, settings } = await state();
+    if (manual) {
+      await page.request.delete("/api/manual/" + manual.code, { headers });
+      for (const id of manual.card_ids) await page.request.delete("/api/cards/" + id, { headers });
+    }
+    await page.request.put("/api/settings", {
+      headers,
+      data: { ...settings, manual_batch_size: Number(originalSize) },
+    });
+  }
 });

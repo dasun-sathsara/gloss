@@ -197,7 +197,9 @@ async def test_partial_sync_reports_remaining_ids_and_original_decks(library, ca
         await AnkiGateway(client, library).sync(job, [card, other], preferences, True, "Learner")
     assert library.get(card.id).note_id == 12
     remaining = next(event["data"] for event in job.events if event["event"] == "sync_remaining")
+    assert library.sync_recovery().status() == remaining
     assert remaining == {
+        "id": job.id,
         "saved": 1,
         "ids": [other.id],
         "decks": {other.id: other.deck},

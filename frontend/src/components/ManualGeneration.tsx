@@ -36,14 +36,14 @@ export function ManualBatch({
   run,
   busy,
   error,
-  focusCopy,
+  focusAction,
   onImport,
   onClose,
 }: {
   run: ManualRun;
   busy: boolean;
   error: { message: string; canCorrect: boolean } | null;
-  focusCopy: boolean;
+  focusAction: boolean;
   onImport: (reply: string) => void;
   onClose: () => void;
 }) {
@@ -72,10 +72,14 @@ export function ManualBatch({
   };
   const setReply = (text: string) => saveDraft({ text });
   const promptField = useRef<HTMLTextAreaElement>(null);
-  const copyButton = useRef<HTMLButtonElement>(null);
+  const actionButton = useRef<HTMLButtonElement>(null);
+  const needsFocus = useRef(focusAction);
   useEffect(() => {
-    if (focusCopy) copyButton.current?.focus();
-  }, [focusCopy]);
+    if (needsFocus.current && !busy) {
+      needsFocus.current = false;
+      actionButton.current?.focus();
+    }
+  }, [busy]);
   const correction =
     "Return one complete replacement reply for this batch. " +
     (error?.message ?? "") +
@@ -142,7 +146,7 @@ export function ManualBatch({
         <h2 role="status">
           {run.total} {run.total === 1 ? "word" : "words"} imported.
         </h2>
-        <Button disabled={busy} onClick={onClose}>
+        <Button ref={actionButton} disabled={busy} onClick={onClose}>
           Done
         </Button>
       </div>
@@ -175,7 +179,7 @@ export function ManualBatch({
         </p>
         <div className="manual-actions">
           <Button
-            ref={copyButton}
+            ref={actionButton}
             variant={reply.trim() ? "outline" : "default"}
             disabled={busy}
             onClick={() => void copy(defaultPrompt)}

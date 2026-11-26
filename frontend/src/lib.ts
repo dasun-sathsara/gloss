@@ -104,6 +104,13 @@ export interface ManualRun {
   full_prompt: string;
   short_prompt: string;
 }
+export interface SyncRecovery {
+  id: string;
+  saved: number;
+  ids: string[];
+  profile: string;
+  decks: Record<string, string>;
+}
 export interface Bootstrap {
   settings: Preferences;
   voices: string[];
@@ -115,6 +122,7 @@ export interface Bootstrap {
   card_count: number;
   library_truncated: boolean;
   active_job: Job | null;
+  sync_recovery: SyncRecovery | null;
   manual: ManualRun | null;
   provider_ready: boolean;
   text_provider: string;

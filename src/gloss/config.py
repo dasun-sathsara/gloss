@@ -68,7 +68,7 @@ class Preferences(BaseModel):
     last_deck: str = ""
     note_type: str = Field(default="Gloss", min_length=1, max_length=80)
     # Which engine recorded the clips. Empty means the Google voice above; a local
-    # engine carries its name and voice so a different voice invalidates old clips.
+    # engine carries its name and voice so recordings with different voices cache separately.
     audio_engine: str = ""
     tts_concurrency: int = Field(default=2, ge=1, le=3)
     tts_rpm: int = Field(default=20, ge=1, le=120)

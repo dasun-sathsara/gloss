@@ -22,8 +22,8 @@ from gloss.anki.templates import available_fonts
 from gloss.config import VOICES, WOOF_VOICES, Configuration, Preferences
 from gloss.core.events import Job, Jobs
 from gloss.core.manual import ManualRun
-from gloss.core.models import CLIP_KINDS, Card, ClipKind, Entry
-from gloss.core.orchestrator import Orchestrator, clip_key
+from gloss.core.models import Card, ClipKind, Entry
+from gloss.core.orchestrator import Orchestrator
 from gloss.core.parsing import parse_entries
 from gloss.core.ports import ProviderError
 from gloss.library.store import Library
@@ -49,6 +49,7 @@ class Selection(BaseModel):
 
 class ProfileSelection(Selection):
     expected_profile: str | None = None
+    recovery_id: str | None = None
 
 
 class SyncSelection(Selection):
@@ -250,23 +251,16 @@ def create_app(
     def selected(ids: list[str]) -> list[Card]:
         return [library.get(card_id) for card_id in dict.fromkeys(ids)]
 
-    def valid_audio(card: Card, clips_by_key: dict[str, str] | None = None) -> Card:
-        for kind in CLIP_KINDS:
-            current_file = card.audio.get(kind)
-            if not current_file:
-                card.audio.pop(kind, None)
-                continue
-            key = clip_key(configuration.preferences, card.clip_text(kind))
-            expected = clips_by_key.get(key) if clips_by_key is not None else library.clip(key)
-            if current_file != expected:
-                card.audio.pop(kind, None)
-        if card.synced_hash and card.content_hash() != card.synced_hash:
-            card.synced_hash = ""
-        return card
-
     def valid_cards(cards: list[Card]) -> list[Card]:
-        clips_by_key = library.clip_map()
-        return [valid_audio(card, clips_by_key) for card in cards]
+        files = library.clip_files()
+        for card in cards:
+            # Existing recordings belong to the card text, not the current engine or voice.
+            card.audio = {
+                kind: filename for kind, filename in card.audio.items() if filename in files
+            }
+            if card.synced_hash and card.content_hash() != card.synced_hash:
+                card.synced_hash = ""
+        return cards
 
     async def with_providers(job: Job, operation) -> None:
         nonlocal woof_synth
@@ -383,8 +377,10 @@ def create_app(
         cards = valid_cards(library.all())
         total = library.count()
         manual = library.manual_run()
+        recovery = library.sync_recovery()
         environment = configuration.environment
         return {
+            "sync_recovery": recovery.status() if recovery else None,
             "settings": configuration.preferences,
             "voices": VOICES if environment.google_cloud_project else [],
             "woof_voices": WOOF_VOICES,
@@ -430,16 +426,6 @@ def create_app(
         ):
             raise ValueError("Configure a Google Cloud project before enabling Google audio.")
         configuration.save(preferences)
-        clips_by_key = library.clip_map()
-        changed: list[Card] = []
-        for card in library.all_unlimited():
-            old_audio = dict(card.audio)
-            old_hash = card.synced_hash
-            valid_audio(card, clips_by_key)
-            if card.audio != old_audio or card.synced_hash != old_hash:
-                changed.append(card)
-        if changed:
-            library.save_many(changed)
         if configuration.preferences.text_model != previous_text_model and warm_task is not None:
             start_warm()
         return configuration.preferences
@@ -542,6 +528,7 @@ def create_app(
         idle(during_audio=True)
         card = library.get(card_id)
         previous = card.base_identity()
+        previous_clips = {kind: card.clip_text(kind) for kind in card.audio}
         for key, value in edit.model_dump().items():
             setattr(card, key, value)
         if previous != card.base_identity():
@@ -552,7 +539,10 @@ def create_app(
         elif card.synced_hash and card.content_hash() != card.synced_hash:
             card.synced_hash = ""
         card.audio_errors.clear()
-        return library.save(valid_audio(card))
+        for kind, text in previous_clips.items():
+            if card.clip_text(kind) != text:
+                card.audio.pop(kind)
+        return library.save(valid_cards([card])[0])
 
     @app.delete("/api/cards/{card_id}")
     async def remove(card_id: str):
@@ -633,26 +623,61 @@ def create_app(
         idle()
         return {"deck": await gateway.add_deck(configuration.preferences, name.name)}
 
+    def check_sync_scope(cards: list[Card], recovery_id: str | None):
+        recovery = library.sync_recovery()
+        if recovery is None:
+            if recovery_id is not None:
+                raise ValueError("This Anki retry is no longer pending. Refresh Gloss.")
+            return None
+        if recovery.id != recovery_id:
+            raise ValueError("Retry or discard the pending Anki save before starting a new one.")
+        if any(card.id not in recovery.decks for card in cards):
+            raise ValueError("Only cards left in the pending Anki save can be retried.")
+        if any(recovery.decks[card.id] != card.deck for card in cards):
+            raise ValueError("Restore the original decks before retrying.")
+        return recovery
+
+    async def sync_profile(expected: str | None) -> str:
+        profile = await gateway.client.call("getActiveProfile")
+        if expected and expected != profile:
+            raise ValueError("Switch back to the original Anki profile before retrying.")
+        return profile
+
+    @app.delete("/api/anki/recovery/{recovery_id}")
+    async def discard_recovery(recovery_id: str):
+        idle()
+        recovery = library.sync_recovery()
+        if recovery is None or recovery.id != recovery_id:
+            raise ValueError("This Anki retry is no longer pending. Refresh Gloss.")
+        library.save_sync_recovery(None)
+        sync_ticket.clear()
+        return {"discarded": True}
+
     @app.post("/api/anki/conflicts")
     async def conflicts(selection: ProfileSelection):
         idle()
-        if selection.expected_profile:
-            profile = await gateway.client.call("getActiveProfile")
-            if selection.expected_profile != profile:
-                raise ValueError("Switch back to the original Anki profile before retrying.")
-        return await gateway.conflicts(selected(selection.ids), configuration.preferences)
+        cards = selected(selection.ids)
+        recovery = check_sync_scope(cards, selection.recovery_id)
+        expected = recovery.profile if recovery else selection.expected_profile
+        if expected:
+            await sync_profile(expected)
+        return await gateway.conflicts(cards, configuration.preferences)
 
     @app.post("/api/anki/pull")
     async def pull(selection: ProfileSelection):
         idle()
-        selected(selection.ids)
-        profile = await gateway.client.call("getActiveProfile")
-        if selection.expected_profile and selection.expected_profile != profile:
-            raise ValueError("Switch back to the original Anki profile before retrying.")
+        cards = selected(selection.ids)
+        recovery = check_sync_scope(cards, selection.recovery_id)
+        profile = await sync_profile(recovery.profile if recovery else selection.expected_profile)
         await gateway.client.call("sync")
         ticket = secrets.token_urlsafe(32)
         sync_ticket.clear()
-        sync_ticket.update(ticket=ticket, ids=sorted(set(selection.ids)), profile=profile)
+        sync_ticket.update(
+            ticket=ticket,
+            ids=sorted(set(selection.ids)),
+            profile=profile,
+            recovery_id=selection.recovery_id,
+        )
         return {"ticket": ticket, "profile": profile}
 
     @app.post("/api/anki/sync")
@@ -665,15 +690,18 @@ def create_app(
         ):
             raise ValueError("Start Anki sync and confirm it completed before sending notes.")
         cards = valid_cards(selected(selection.ids))
+        recovery = check_sync_scope(cards, sync_ticket["recovery_id"])
+        profile = await sync_profile(sync_ticket["profile"])
         preferences = configuration.preferences.model_copy(deep=True)
-        profile = sync_ticket["profile"]
         sync_ticket.clear()
         if cards:
             preferences.last_deck = cards[0].deck
             configuration.save(preferences)
         job = jobs.start(
             "sync",
-            lambda job: gateway.sync(job, cards, preferences, selection.allow_missing, profile),
+            lambda job: gateway.sync(
+                job, cards, preferences, selection.allow_missing, profile, recovery
+            ),
         )
         return {"id": job.id, "kind": job.kind, "stage": job.stage}
 

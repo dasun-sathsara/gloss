@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { Choice } from "./components/Choice";
 import { ManualBatch, ManualStart } from "./components/ManualGeneration";
@@ -26,6 +27,7 @@ import {
 
 export default function App() {
   const g = useGloss();
+  const [confirmDiscardRetry, setConfirmDiscardRetry] = useState(false);
   const b = g.bootstrap;
   if (!b)
     return (
@@ -67,17 +69,14 @@ export default function App() {
   const hasCards = g.view === "library" ? g.cards.length > 0 : g.batchIds.size > 0;
   const recovery = g.recovery;
   const remaining = recovery
-    ? g.cards.filter(
-        (card) =>
-          recovery.ids.includes(card.id) &&
-          (g.view === "library" || g.batchIds.has(card.id)) &&
-          card.decision !== "skip",
-      )
+    ? recovery.ids.flatMap((id) => {
+        const card = g.cards.find((value) => value.id === id);
+        return card && card.decision !== "skip" ? [card] : [];
+      })
     : [];
   const recoveryProfileChanged =
     !!recovery && !!g.anki.connected && recovery.profile !== g.anki.profile;
   const retryCards = remaining.filter(isReady);
-  const selectedForRecovery = g.readySelection.some((card) => recovery?.ids.includes(card.id));
   const recoveryDeckChanged =
     !!recovery &&
     retryCards.some(
@@ -166,7 +165,7 @@ export default function App() {
                   run={g.manual}
                   busy={g.busy}
                   error={g.manualError}
-                  focusCopy={g.manual.code === g.nextCopyCode}
+                  focusAction={g.manual.code === g.manualFocusCode}
                   onImport={g.importManual}
                   onClose={g.closeManual}
                 />
@@ -176,6 +175,7 @@ export default function App() {
                     <Field className="gap-1.5">
                       <FieldLabel htmlFor="words-input">Words</FieldLabel>
                       <Textarea
+                        ref={g.wordInput}
                         id="words-input"
                         placeholder={"curious\npatient: willing to wait"}
                         title="Separate entries with line breaks, commas, or semicolons. Put hints after a colon."
@@ -351,13 +351,13 @@ export default function App() {
                       disabled={
                         g.busy ||
                         !g.readySelection.length ||
-                        selectedForRecovery ||
+                        !!recovery ||
                         !g.anki.ready ||
                         (g.view === "review" && deckMissing)
                       }
                       title={
-                        selectedForRecovery
-                          ? "Use Retry remaining cards to finish saving to Anki."
+                        recovery
+                          ? "Retry or discard the pending Anki save first."
                           : !g.anki.connected
                             ? "Open Anki with AnkiConnect enabled."
                             : !g.anki.ready
@@ -401,12 +401,13 @@ export default function App() {
                 )}
               </>
             )}
-            {recovery && remaining.length > 0 && (
+            {recovery && (
               <div className="notice message anki-recovery">
                 <div>
                   <p>
                     Gloss saved {recovery.saved} {recovery.saved === 1 ? "card" : "cards"} in Anki
-                    under {JSON.stringify(recovery.profile)}. Cards left to save:
+                    under {JSON.stringify(recovery.profile)}.{" "}
+                    {remaining.length ? "Cards left to save:" : "No remaining cards to retry."}
                   </p>
                   <ul>
                     {remaining.map((card) => (
@@ -426,19 +427,29 @@ export default function App() {
                     <p className="help">Restore the original decks before retrying.</p>
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  disabled={
-                    g.busy ||
-                    !g.anki.ready ||
-                    retryCards.length !== remaining.length ||
-                    recoveryProfileChanged ||
-                    recoveryDeckChanged
-                  }
-                  onClick={() => g.beginSync(retryCards.map((card) => card.id))}
-                >
-                  Retry remaining cards
-                </Button>
+                <div className="recovery-actions">
+                  <Button
+                    variant="ghost"
+                    disabled={g.busy}
+                    onClick={() => setConfirmDiscardRetry(true)}
+                  >
+                    Discard retry
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={
+                      g.busy ||
+                      !g.anki.ready ||
+                      !retryCards.length ||
+                      retryCards.length !== remaining.length ||
+                      recoveryProfileChanged ||
+                      recoveryDeckChanged
+                    }
+                    onClick={() => g.beginSync(retryCards.map((card) => card.id))}
+                  >
+                    Retry remaining cards
+                  </Button>
+                </div>
               </div>
             )}
             {g.job && (
@@ -687,6 +698,28 @@ export default function App() {
         </div>
       </Modal>
       <Modal
+        title="Discard this Anki retry?"
+        open={confirmDiscardRetry}
+        onOpenChange={setConfirmDiscardRetry}
+      >
+        <p>Cards already saved to Anki stay there. Cards in Gloss stay in your library.</p>
+        <div className="dialog-footer">
+          <Button variant="outline" onClick={() => setConfirmDiscardRetry(false)}>
+            Keep retry
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={g.busy}
+            onClick={() => {
+              setConfirmDiscardRetry(false);
+              void g.discardRecovery();
+            }}
+          >
+            Discard retry
+          </Button>
+        </div>
+      </Modal>
+      <Modal
         title="Finish syncing in Anki"
         open={!!g.syncDialog}
         onOpenChange={(open) => {
@@ -710,7 +743,7 @@ export default function App() {
             <AlertDescription>{g.error}</AlertDescription>
           </Alert>
         )}
-        {g.missing && (
+        {g.syncMissing && (
           <Field orientation="horizontal">
             <Checkbox
               id="allow-missing"
@@ -725,7 +758,7 @@ export default function App() {
             Cancel
           </Button>
           <Button
-            disabled={g.busy || (g.missing && !g.allowMissing)}
+            disabled={g.busy || (g.syncMissing && !g.allowMissing)}
             onClick={() =>
               g.perform(async () => {
                 if (!g.syncDialog) return;

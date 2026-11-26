@@ -234,7 +234,13 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
         ? [
             [
               "sync_remaining",
-              { saved: 1, ids: [failed], profile: "Test", decks: { [failed]: "Gloss::Science" } },
+              {
+                id: "test-sync",
+                saved: 1,
+                ids: [failed],
+                profile: "Test",
+                decks: { [failed]: "Gloss::Science" },
+              },
             ],
             ["failed", { message: "Anki stopped." }],
           ]
