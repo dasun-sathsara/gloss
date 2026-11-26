@@ -1,7 +1,7 @@
 # Gloss
 
 Gloss creates English vocabulary flashcards with Sinhala meanings, two examples, and
-pronunciation audio. Review and edit the text, prepare audio, then send the cards to Anki.
+pronunciation audio. Review the text and send the cards to Anki with or without audio.
 The app runs on your computer. Words come from Google or any OpenAI-compatible
 endpoint, or from a JSON reply you paste from a chat app. Google Cloud or local Woof
 can record speech.
@@ -49,22 +49,24 @@ Gloss does not bundle or download them, and the model folder stays outside the c
 
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.
 Choose a deck once for the batch. Gloss starts in manual mode. To use the API,
-configure a text provider and explicitly select **Automatic generation**.
+configure a text provider, then select **Automatic generation** in **Settings**.
 In that mode, Ctrl+Enter or Cmd+Enter also starts generation.
 
 ### Manual copy & paste
 
-1. Enter your words. To change the default of 25, open **Settings → Words per manual
-   batch**. The saved size applies to new runs, not ones already in progress.
+1. Enter your words. If Gloss flags exact repeats, choose **Remove duplicates** to keep
+   the first occurrence of each entry. Use **Words per manual batch** in **Settings**
+   to change the default of 25 for new runs.
 2. Choose **Start manual generation**. Copy the full prompt into Gemini Web or another
    chat. Return to Gloss and choose **Paste reply** or paste into the JSON field yourself.
    Gloss accepts JSON with or without the code fence.
-3. Validate the reply. Gloss saves nothing until every expected row passes. If it reports
-   a missing, duplicated, or wrong-batch row, keep the batch open and ask the chat for
-   a corrected reply. Words the model flags as unclear appear as drafts for review.
-4. For later batches in the same chat, copy the shorter continuation prompt. Copy the
-   full prompt any time you switch chats or the model loses the format. Closing or
-   refreshing Gloss preserves the queue and saved drafts.
+3. Validate the reply. Gloss saves nothing until every expected row passes. For a missing
+   or invalid row, use **Copy correction prompt** to ask for a complete replacement.
+   If the reply is for another batch, copy the current prompt. Words the model flags as
+   unclear still appear as drafts you can edit.
+4. For later batches in the same chat, copy the shorter continuation prompt. Use the
+   full prompt if you switch chats. Reloading restores the queue, saved drafts, and the
+   pasted reply for the current batch.
 5. Review the imported cards. **Prepare audio** is optional and works with local Woof
    even without text credentials. **Sync to Anki** is a separate step.
 
@@ -75,8 +77,10 @@ right after it writes the words. You can keep editing while audio records. Savin
 changed clip. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
 audio in Settings to record only when you choose **Prepare audio**. New words join the
 unsynced words already in the batch for the same deck.
-Choose **Sync to Anki** when the selected cards are ready. For conflicting meanings,
-keep both, overwrite, or skip. Updates preserve the existing note and review history.
+Choose **Sync to Anki** when the selected cards are ready. Check the card count and target
+deck before saving. If Anki stops partway, use **Retry remaining cards** in the same
+Anki profile. For conflicting meanings, keep both, overwrite, or skip. Updates preserve
+the existing note and review history.
 Changing a synced word or part of speech creates a new identity and leaves the old note in Anki.
 
 Setup creates a `Gloss` note type and a `Gloss` deck tree. The answer plays the word;
