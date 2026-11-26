@@ -68,7 +68,12 @@ export function useGloss() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [pending, setPending] = useState(false);
   const [view, setView] = useState<"review" | "library">("review");
-  const [search, setSearch] = useState("");
+  const [search, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const setSearch = (query: string) => {
+    setQuery(query);
+    setPage(0);
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [moveParent, setMoveParent] = useState(false);
@@ -682,28 +687,26 @@ export function useGloss() {
     () => selection.filter((card) => isReady(card) && card.decision !== "skip"),
     [selection],
   );
+  // Input order within each batch, with newest batches first in the library.
+  const orderedCards = useMemo(() => {
+    if (view === "review") {
+      return cards.filter((card) => batchIds.has(card.id)).sort((a, b) => a.order - b.order);
+    }
+    return [...cards].sort(
+      (a, b) =>
+        Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
+        (a.order % 1000) - (b.order % 1000),
+    );
+  }, [cards, view, batchIds]);
   const visibleCards = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return (
-      cards
-        .filter(
-          (card) =>
-            (view === "library" || batchIds.has(card.id)) &&
-            (!query ||
-              `${card.word} ${card.source_word} ${card.pos} ${card.meaning} ${card.sinhala} ${card.example1} ${card.example2} ${view === "library" ? card.deck : ""}`
-                .toLowerCase()
-                .includes(query)),
-        )
-        // Deterministic order: input order in a batch; newest batch first in the
-        // library, still in input order within each batch.
-        .sort((a, b) =>
-          view === "library"
-            ? Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
-              (a.order % 1000) - (b.order % 1000)
-            : a.order - b.order,
-        )
+    if (!query) return orderedCards;
+    return orderedCards.filter((card) =>
+      `${card.word} ${card.source_word} ${card.pos} ${card.meaning} ${card.sinhala} ${card.example1} ${card.example2} ${view === "library" ? card.deck : ""}`
+        .toLowerCase()
+        .includes(query),
     );
-  }, [cards, view, batchIds, search]);
+  }, [orderedCards, search, view]);
   const audio = () =>
     perform(async () => {
       await flush();
@@ -914,6 +917,8 @@ export function useGloss() {
     changeView,
     search,
     setSearch,
+    page,
+    setPage,
     settingsOpen,
     setSettingsOpen,
     setupOpen,

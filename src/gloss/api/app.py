@@ -11,9 +11,9 @@ from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from gloss.anki.client import AnkiClient
@@ -30,6 +30,8 @@ from gloss.library.store import Library
 from gloss.providers.openai_compat import ChatCompletionsLanguageModel
 from gloss.providers.vertex import VertexLanguageModel, VertexSynthesizer, make_client
 from gloss.providers.woof import WoofSynthesizer
+
+BOOTSTRAP_JSON = TypeAdapter(dict[str, Any])
 
 
 class Paste(BaseModel):
@@ -371,7 +373,7 @@ def create_app(
             "text_health_detail": text_health["detail"],
         }
 
-    @app.get("/api/bootstrap")
+    @app.get("/api/bootstrap", response_class=JSONResponse)
     async def bootstrap():
         active = jobs.active
         cards = valid_cards(library.all())
@@ -379,7 +381,7 @@ def create_app(
         manual = library.manual_run()
         recovery = library.sync_recovery()
         environment = configuration.environment
-        return {
+        payload = {
             "sync_recovery": recovery.status() if recovery else None,
             "settings": configuration.preferences,
             "voices": VOICES if environment.google_cloud_project else [],
@@ -414,6 +416,8 @@ def create_app(
             "fonts_complete": "_StudioFeixenSansVariable.ttf"
             in available_fonts(configuration.directory / "fonts"),
         }
+        # Serialize the full library in one pass, including nested Pydantic models.
+        return Response(BOOTSTRAP_JSON.dump_json(payload), media_type="application/json")
 
     @app.put("/api/settings")
     async def settings(preferences: Preferences):

@@ -6,6 +6,8 @@ import { Checkbox } from "./ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { WordEditor } from "./WordEditor";
 
+export const WORDS_PER_PAGE = 100;
+
 function AnkiStatus({ card, dirty }: { card: Card; dirty: boolean }) {
   if (dirty) return <span className="draft-label unsaved-label">Unsaved</span>;
   if (card.decision === "skip") return <span className="draft-label">Skipped</span>;
@@ -66,6 +68,7 @@ function AudioCell({ card }: { card: Card }) {
 
 export function WordTable({
   cards,
+  pageStart,
   selected,
   dirty,
   disabled,
@@ -87,6 +90,7 @@ export function WordTable({
   onStopAudio,
 }: {
   cards: Card[];
+  pageStart: number;
   selected: Set<string>;
   dirty: Set<string>;
   disabled: boolean;
@@ -122,7 +126,11 @@ export function WordTable({
             <label className="check-target" htmlFor={selectAllId}>
               <Checkbox
                 id={selectAllId}
-                aria-label="Select all words"
+                aria-label={
+                  cards.length > WORDS_PER_PAGE
+                    ? "Select all matching words across pages"
+                    : "Select all words"
+                }
                 disabled={disabled || !cards.length}
                 checked={all ? true : some ? "indeterminate" : false}
                 onCheckedChange={(checked) => onSelectAll(checked === true)}
@@ -139,7 +147,8 @@ export function WordTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {cards.map((card, index) => {
+        {cards.slice(pageStart, pageStart + WORDS_PER_PAGE).map((card, pageIndex) => {
+          const index = pageStart + pageIndex;
           const isDirty = dirty.has(card.id);
           const isEditing = activeEditing === card.id;
           const label = card.word || card.source_word || "word";
@@ -163,9 +172,10 @@ export function WordTable({
                       }}
                       onCheckedChange={(checked) => {
                         const nextChecked = checked === true;
-                        const anchor = lastToggledId.current
-                          ? cards.findIndex((item) => item.id === lastToggledId.current)
-                          : -1;
+                        const anchor =
+                          shiftHeld.current && lastToggledId.current
+                            ? cards.findIndex((item) => item.id === lastToggledId.current)
+                            : -1;
                         if (
                           shiftHeld.current &&
                           onSelectRange &&

@@ -13,7 +13,7 @@ import { Field, FieldLabel } from "./components/ui/field";
 import { Input } from "./components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
-import { WordTable } from "./components/WordTable";
+import { WordTable, WORDS_PER_PAGE } from "./components/WordTable";
 import { useGloss } from "./hooks/useGloss";
 import {
   api,
@@ -82,6 +82,10 @@ export default function App() {
     retryCards.some(
       (card) => card.deck !== recovery.decks[card.id] || !g.anki.decks.includes(card.deck),
     );
+  const matchCount = g.visibleCards.length;
+  const pageCount = Math.ceil(matchCount / WORDS_PER_PAGE);
+  const page = Math.min(g.page, Math.max(0, pageCount - 1));
+  const pageStart = page * WORDS_PER_PAGE;
   const hiddenCount =
     g.selected.size - g.visibleCards.filter((card) => g.selected.has(card.id)).length;
   return (
@@ -323,7 +327,7 @@ export default function App() {
                       disabled={g.busy}
                       onClick={() => g.setSelected(new Set(g.visibleCards.map((card) => card.id)))}
                     >
-                      Select visible only
+                      Select matching words
                     </Button>
                   </div>
                 )}
@@ -494,9 +498,36 @@ export default function App() {
                 ) : null}
               </div>
             )}
-            {g.visibleCards.length ? (
+            {pageCount > 1 && (
+              <nav className="word-pages" aria-label="Word results pages">
+                <span role="status">
+                  Showing {pageStart + 1}–{Math.min(pageStart + WORDS_PER_PAGE, matchCount)} of{" "}
+                  {matchCount} words
+                </span>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 0}
+                    onClick={() => g.setPage(page - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page + 1 === pageCount}
+                    onClick={() => g.setPage(page + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </nav>
+            )}
+            {matchCount ? (
               <WordTable
                 cards={g.visibleCards}
+                pageStart={pageStart}
                 selected={g.selected}
                 dirty={g.dirty}
                 disabled={g.busy}
