@@ -101,7 +101,7 @@ export function WordTable({
   onSave: (card: Card) => void;
   onDiscard: (id: string) => void;
   onRemove: (id: string) => void;
-  onRetry: (card: Card) => void;
+  onRetry?: (card: Card) => void;
   onListen: (card: Card, kind: Clip) => void;
   onStopAudio: () => void;
 }) {
@@ -253,7 +253,7 @@ export function WordTable({
                       onChange={(patch) => onChange(card.id, patch)}
                       onSave={() => onSave(card)}
                       onDiscard={() => onDiscard(card.id)}
-                      onRetry={() => onRetry(card)}
+                      onRetry={onRetry && !card.manual ? () => onRetry(card) : undefined}
                       onListen={(kind) => onListen(card, kind)}
                       onClose={() => {
                         if (playing?.id === card.id) onStopAudio();

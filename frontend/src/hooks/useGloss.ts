@@ -12,6 +12,8 @@ import {
   hasAudio,
   isReady,
   type Job,
+  type ManualOptions,
+  type ManualRun,
   mergeIncoming,
   missingClips,
   normalizedText,
@@ -27,6 +29,9 @@ export function useGloss() {
   const [cards, setCards] = useState<Card[]>([]);
   const [anki, setAnki] = useState<AnkiStatus>(emptyAnki);
   const [text, setText] = useState("");
+  const [manual, setManual] = useState<ManualRun | null>(null);
+  const [manualError, setManualError] = useState("");
+  const [generationMode, setGenerationMode] = useState<"api" | "manual">("manual");
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [deck, setDeck] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -161,6 +166,8 @@ export function useGloss() {
         setBootstrap(value);
         setCards(value.cards);
         setJob(value.active_job);
+        setManual(value.manual);
+        setGenerationMode(value.manual || !value.provider_ready ? "manual" : "api");
         setDeck(
           (old) =>
             old ||
@@ -168,7 +175,9 @@ export function useGloss() {
             `${value.settings.deck_parent}::${value.settings.deck_default}`,
         );
         const restoredIds = new Set(
-          [...initialBatchIds.current].filter((id) => value.cards.some((card) => card.id === id)),
+          [...initialBatchIds.current, ...(value.manual?.card_ids ?? [])].filter((id) =>
+            value.cards.some((card) => card.id === id),
+          ),
         );
         if (restoredIds.size) {
           setBatchIds(restoredIds);
@@ -187,6 +196,7 @@ export function useGloss() {
           setSelected(new Set(drafts.filter(isReady).map((card) => card.id)));
           if (drafts[0]?.deck) setDeck(drafts[0].deck);
         }
+        if (value.manual) setDeck(value.manual.deck);
       })
       .catch((error) => setError(error.message));
     refreshAnki().catch((error) => setError(error.message));
@@ -460,6 +470,7 @@ export function useGloss() {
     }
     if (
       bootstrap?.audio_ready &&
+      !saved.manual &&
       bootstrap?.settings.auto_audio &&
       isReady(saved) &&
       !hasAudio(saved)
@@ -541,6 +552,54 @@ export function useGloss() {
       setNotice("");
     });
   };
+  const startManual = (options: ManualOptions) =>
+    perform(async () => {
+      await flush();
+      const run = await api<ManualRun>("/manual", "POST", { ...options, text, deck });
+      const keep = new Set(
+        cardsRef.current
+          .filter((card) => batchIds.has(card.id) && !card.note_id && card.deck === deck)
+          .map((card) => card.id),
+      );
+      setBatchIds(keep);
+      setSelected((old) => new Set([...old].filter((id) => keep.has(id))));
+      setManual(run);
+      setManualError("");
+      setText("");
+      setSearch("");
+      setNotice("");
+    });
+  const importManual = (reply: string, nextSize: number) =>
+    perform(async () => {
+      setManualError("");
+      const result = await api<{ manual: ManualRun; cards: Card[] }>("/manual/import", "POST", {
+        reply,
+        next_size: nextSize,
+      }).catch((error: unknown) => {
+        setManualError(error instanceof Error ? error.message : "The import failed. Try again.");
+        return null;
+      });
+      if (!result) return;
+      setCards((old) => [...result.cards, ...old]);
+      setBatchIds((old) => new Set([...old, ...result.cards.map((card) => card.id)]));
+      setSelected(
+        (old) => new Set([...old, ...result.cards.filter(isReady).map((card) => card.id)]),
+      );
+      setManual(result.manual);
+      setSearch("");
+      setNotice(
+        describeSummary({
+          words: result.cards.length,
+          needs_review: result.cards.filter((card) => !isReady(card)).length,
+        }),
+      );
+    });
+  const closeManual = () =>
+    perform(async () => {
+      if (!manual) return;
+      await api("/manual/" + manual.code, "DELETE");
+      setManual(null);
+    });
   const selection = useMemo(() => cards.filter((card) => selected.has(card.id)), [cards, selected]);
   const readySelection = useMemo(
     () => selection.filter((card) => isReady(card) && card.decision !== "skip"),
@@ -782,6 +841,13 @@ export function useGloss() {
     flush,
     changeCard,
     generate,
+    generationMode,
+    setGenerationMode,
+    manual,
+    manualError,
+    startManual,
+    importManual,
+    closeManual,
     selection,
     readySelection,
     visibleCards,

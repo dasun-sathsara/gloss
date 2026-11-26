@@ -6,6 +6,7 @@ export type Decision = "ask" | "overwrite" | "keep_both" | "skip";
 export interface Card {
   id: string;
   source_word: string;
+  manual?: boolean;
   hint: string;
   word: string;
   pos: string;
@@ -86,6 +87,23 @@ export interface Progress {
   completed: number;
   total: number;
 }
+export interface ManualOptions {
+  size: number;
+  instructions: string;
+  continuation: string;
+}
+export interface ManualRun {
+  deck: string;
+  size: number;
+  code: string;
+  number: number;
+  completed: number;
+  total: number;
+  current_count: number;
+  card_ids: string[];
+  full_prompt: string;
+  short_prompt: string;
+}
 export interface Bootstrap {
   settings: Preferences;
   voices: string[];
@@ -93,6 +111,8 @@ export interface Bootstrap {
   card_count: number;
   library_truncated: boolean;
   active_job: Job | null;
+  manual: ManualRun | null;
+  manual_defaults: ManualOptions;
   provider_ready: boolean;
   text_provider: string;
   text_health: "off" | "warming" | "ready" | "down";

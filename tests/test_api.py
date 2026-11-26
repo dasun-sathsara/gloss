@@ -349,3 +349,191 @@ async def test_patch_card_resets_decision_on_identity_change_and_clears_hash_on_
         assert renamed.json()["note_id"] is None
         assert renamed.json()["synced_hash"] == ""
         assert renamed.json()["decision"] == "ask"
+
+
+def manual_item(index, word, **changes):
+    return {
+        "index": index,
+        "source_word": word,
+        "valid": True,
+        "word": word,
+        "pos": "noun",
+        "meaning": "A short meaning.",
+        "sinhala": "අර්ථය",
+        "example1": "This is the first example.",
+        "example2": "This is a second example.",
+        "reason": "",
+        **changes,
+    }
+
+
+async def test_manual_generation_resumes_25_word_batches_without_text_credentials(tmp_path):
+    configuration = configured(tmp_path, text_api_base="", text_api_key="", google_cloud_project="")
+    app = create_app(configuration)
+    words = ["record: noun", "record: verb", *(f"word {i}" for i in range(3, 51))]
+    origin = "http://127.0.0.1:8766"
+    deck = f"{configuration.preferences.deck_parent}::General"
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = origin
+        initial = (await http.get("/api/bootstrap")).json()
+        assert not initial["provider_ready"]
+        assert initial["manual"] is None
+        assert initial["manual_defaults"]["size"] == 25
+        response = await http.post(
+            "/api/manual",
+            json={
+                "text": "\n".join(words),
+                "deck": deck,
+                "instructions": "Use British English definitions.",
+                "continuation": "Keep the previous style.",
+            },
+        )
+        assert response.status_code == 200, response.text
+        first = response.json()
+        assert first["current_count"] == 25
+        assert first["total"] == 50
+        assert first["number"] == 1
+        assert "Use British English" in first["full_prompt"]
+        assert "Use British English" not in first["short_prompt"]
+        assert "Keep the previous style." in first["short_prompt"]
+        assert "word 25" in first["full_prompt"]
+        assert "word 26" not in first["full_prompt"]
+        assert "record" in first["full_prompt"]
+        assert '"hint": "noun"' in first["full_prompt"]
+        assert '"hint": "verb"' in first["full_prompt"]
+        rows = [manual_item(i, word.split(":")[0]) for i, word in enumerate(words[:25], 1)]
+        rows[1]["pos"] = "verb"
+        rows[2].update(valid=False, reason="Intended word unclear.")
+        import_path = "/api/manual/import"
+        bad = await http.post(
+            import_path,
+            json={
+                "reply": json.dumps({"batch": first["code"], "items": rows[1:] + rows[1:2]}),
+                "next_size": 25,
+            },
+        )
+        assert bad.status_code == 400
+        assert "Missing rows: 1." in bad.json()["detail"]
+        assert "Duplicate rows: 2." in bad.json()["detail"]
+        bad_fields = await http.post(
+            import_path,
+            json={
+                "reply": json.dumps(
+                    {"batch": first["code"], "items": [rows[0] | {"meaning": ""}, *rows[1:]]}
+                ),
+                "next_size": 25,
+            },
+        )
+        assert bad_fields.status_code == 400
+        assert "Row 1:" in bad_fields.json()["detail"]
+        wrong_word = await http.post(
+            import_path,
+            json={
+                "reply": json.dumps(
+                    {
+                        "batch": first["code"],
+                        "items": [rows[0] | {"source_word": "wrong"}, *rows[1:]],
+                    }
+                ),
+                "next_size": 25,
+            },
+        )
+        assert wrong_word.status_code == 400
+        assert "expected the original word" in wrong_word.json()["detail"]
+        assert app.state.library.count() == 0
+        assert (await http.get("/api/bootstrap")).json()["manual"] == first
+        fenced = (
+            "```json\r\n" + json.dumps({"batch": first["code"], "items": rows[::-1]}) + "\r\n```"
+        )
+        imported = await http.post(import_path, json={"reply": fenced, "next_size": 25})
+        assert imported.status_code == 200, imported.text
+        data = imported.json()
+        assert [card["hint"] for card in data["cards"][:2]] == ["noun", "verb"]
+        assert data["cards"][2]["reason"] == "Intended word unclear."
+        assert not data["cards"][2]["valid"]
+        assert all(card["manual"] and not card["audio"] for card in data["cards"])
+        assert app.state.library.count() == 25
+
+    configuration = configured(tmp_path, text_api_base="", text_api_key="", google_cloud_project="")
+    app = create_app(configuration)
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = origin
+        second = (await http.get("/api/bootstrap")).json()["manual"]
+        assert second["number"] == 2
+        assert second["completed"] == 25
+        assert second["current_count"] == 25
+        assert second["code"] != first["code"]
+        repeated = await http.post(import_path, json={"reply": fenced, "next_size": 25})
+        assert repeated.status_code == 400
+        assert "another batch" in repeated.json()["detail"]
+        assert app.state.library.count() == 25
+        rows = [manual_item(i, word) for i, word in enumerate(words[25:], 1)]
+        reply = json.dumps({"batch": second["code"], "items": rows})
+        imported = await http.post(import_path, json={"reply": reply, "next_size": 25})
+        assert imported.status_code == 200, imported.text
+        done = imported.json()["manual"]
+        assert done["completed"] == 50
+        assert done["current_count"] == 0
+        assert app.state.library.count() == 50
+        assert (
+            await http.post(import_path, json={"reply": reply, "next_size": 25})
+        ).status_code == 409
+        assert (await http.delete(f"/api/manual/{done['code']}")).status_code == 200
+        assert (await http.get("/api/bootstrap")).json()["manual"] is None
+        assert app.state.library.count() == 50
+
+
+async def test_manual_resize_changes_remaining_batches_only(tmp_path):
+    config = configured(tmp_path)
+    app = create_app(config)
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = "http://127.0.0.1:8766"
+        start = await http.post(
+            "/api/manual",
+            json={
+                "text": "alpha; beta; gamma; delta; epsilon; zeta",
+                "deck": f"{config.preferences.deck_parent}::General",
+                "size": 2,
+            },
+        )
+        run = start.json()
+        assert run["current_count"] == 2
+        reply = {"batch": run["code"], "items": [manual_item(1, "alpha"), manual_item(2, "beta")]}
+        imported = await http.post(
+            "/api/manual/import", json={"reply": json.dumps(reply), "next_size": 3}
+        )
+        assert imported.status_code == 200, imported.text
+        next_run = imported.json()["manual"]
+        assert next_run["completed"] == 2
+        assert next_run["current_count"] == 3
+        assert "epsilon" in next_run["short_prompt"]
+        assert "zeta" not in next_run["short_prompt"]
+
+
+async def test_local_woof_audio_does_not_require_text_credentials(tmp_path, card, monkeypatch):
+    configuration = configured(
+        tmp_path,
+        text_api_base="https://unused.example/v1",
+        text_api_key="",
+        google_cloud_project="",
+        woof_model_dir=str(tmp_path),
+    )
+    synth = AsyncMock()
+    synth.workers = 1
+    monkeypatch.setattr("gloss.api.app.WoofSynthesizer", lambda *_args: synth)
+    monkeypatch.setattr(
+        "gloss.core.orchestrator.Orchestrator.audio",
+        generate_test_audio := AsyncMock(
+            return_value={"clips": 4, "ready": 4, "failed": 0, "skipped": 0}
+        ),
+    )
+    app = create_app(configuration)
+    app.state.library.save(card)
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = "http://127.0.0.1:8766"
+        response = await http.post("/api/audio", json={"ids": [card.id]})
+        assert response.status_code == 200, response.text
+        await app.state.jobs.get(response.json()["id"]).task
+        generate_test_audio.assert_awaited_once()
+        assert generate_test_audio.await_args is not None
+        assert generate_test_audio.await_args.args[2] is synth

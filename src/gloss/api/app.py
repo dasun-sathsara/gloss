@@ -3,6 +3,7 @@ import contextlib
 import logging
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 from pathlib import Path
@@ -20,6 +21,7 @@ from gloss.anki.gateway import AnkiGateway
 from gloss.anki.templates import available_fonts
 from gloss.config import VOICES, Configuration, Preferences
 from gloss.core.events import Job, Jobs
+from gloss.core.manual import DEFAULT_CONTINUATION, DEFAULT_INSTRUCTIONS, ManualRun
 from gloss.core.models import CLIP_KINDS, Card, ClipKind, Entry
 from gloss.core.orchestrator import Orchestrator, clip_key
 from gloss.core.parsing import parse_entries
@@ -34,6 +36,17 @@ class Paste(BaseModel):
     text: str = Field(max_length=20_000)
     deck: str = Field(default="", max_length=200)
     confirm_over_cap: bool = False
+
+
+class ManualStart(Paste):
+    size: int = Field(default=25, ge=1, le=100)
+    instructions: str = Field(default=DEFAULT_INSTRUCTIONS, min_length=1, max_length=4_000)
+    continuation: str = Field(default=DEFAULT_CONTINUATION, max_length=1_000)
+
+
+class ManualImport(BaseModel):
+    reply: str = Field(min_length=1, max_length=750_000)
+    next_size: int = Field(ge=1, le=100)
 
 
 class Selection(BaseModel):
@@ -271,27 +284,32 @@ def create_app(
             return
         environment = configuration.environment
         google = bool(environment.google_cloud_project)
-        client = make_client(configuration) if google else None
+        client = (
+            make_client(configuration)
+            if google and (job.kind != "audio" or not environment.woof_model_dir)
+            else None
+        )
         text: VertexLanguageModel | ChatCompletionsLanguageModel | None = None
         synth: VertexSynthesizer | WoofSynthesizer | None = None
         cancelled = False
         try:
-            if environment.text_api_base:
-                text = ChatCompletionsLanguageModel(
-                    environment.text_api_base,
-                    environment.text_api_key,
-                    preferences,
-                    timeout=environment.text_timeout,
-                    client=http,
-                )
-            elif client:
-                text = VertexLanguageModel(client, preferences)
-            else:
-                raise ProviderError(
-                    "Add TEXT_API_BASE and TEXT_API_KEY, or the Google project and credentials, "
-                    "to the config .env.",
-                    fatal=True,
-                )
+            if job.kind != "audio":
+                if environment.text_api_base:
+                    text = ChatCompletionsLanguageModel(
+                        environment.text_api_base,
+                        environment.text_api_key,
+                        preferences,
+                        timeout=environment.text_timeout,
+                        client=http,
+                    )
+                elif client:
+                    text = VertexLanguageModel(client, preferences)
+                else:
+                    raise ProviderError(
+                        "Add TEXT_API_BASE and TEXT_API_KEY, or the Google project and "
+                        "credentials, to the config .env.",
+                        fatal=True,
+                    )
             if environment.woof_model_dir:
                 if woof_synth is None:
                     woof_synth = WoofSynthesizer(
@@ -359,12 +377,19 @@ def create_app(
         active = jobs.active
         cards = valid_cards(library.all())
         total = library.count()
+        manual = library.manual_run()
         environment = configuration.environment
         return {
             "settings": configuration.preferences,
             "voices": [] if (not demo and environment.woof_model_dir) else VOICES,
             "cards": cards,
             "card_count": total,
+            "manual": manual.status() if manual else None,
+            "manual_defaults": {
+                "size": 25,
+                "instructions": DEFAULT_INSTRUCTIONS,
+                "continuation": DEFAULT_CONTINUATION,
+            },
             "library_truncated": total > len(cards),
             "active_job": {"id": active.id, "kind": active.kind, "stage": active.stage}
             if active
@@ -426,6 +451,53 @@ def create_app(
             "estimate_usd": round(count * configuration.preferences.estimated_usd_per_word, 3),
             "audio_calls": count * 4,
         }
+
+    @app.post("/api/manual")
+    async def start_manual(paste: ManualStart):
+        idle()
+        if library.manual_run() is not None:
+            raise HTTPException(409, "Finish or close the current manual run first.")
+        entries = [
+            entry
+            for entry in parse_entries(paste.text)
+            if not entry.duplicate and not entry.warning
+        ]
+        if not entries:
+            raise ValueError("Paste at least one word.")
+        if not paste.deck.startswith(configuration.preferences.deck_parent + "::"):
+            raise ValueError("Choose a subdeck under the configured parent.")
+        if not paste.instructions.strip():
+            raise ValueError("Enter card-writing instructions.")
+        run = ManualRun(
+            entries=entries,
+            deck=paste.deck,
+            order=int(time.time() * 1000) * 1000,
+            size=paste.size,
+            instructions=paste.instructions.strip(),
+            continuation=paste.continuation.strip(),
+        )
+        library.save_manual(run)
+        return run.status()
+
+    @app.post("/api/manual/import")
+    async def import_manual(paste: ManualImport):
+        idle()
+        run = library.manual_run()
+        if run is None or not run.current:
+            raise HTTPException(409, "There is no pending manual batch to import.")
+        cards = run.import_cards(paste.reply)
+        run = run.advance(cards, paste.next_size)
+        library.save_manual(run, cards)
+        return {"manual": run.status(), "cards": cards}
+
+    @app.delete("/api/manual/{code}")
+    async def close_manual(code: str):
+        idle()
+        run = library.manual_run()
+        if run is None or run.code != code:
+            raise HTTPException(409, "This manual run has changed. Refresh Gloss and try again.")
+        library.clear_manual()
+        return {"closed": True}
 
     @app.post("/api/generate")
     async def generate(paste: Paste):

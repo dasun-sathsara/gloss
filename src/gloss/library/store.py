@@ -4,6 +4,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from gloss.core.manual import ManualRun
 from gloss.core.models import Card
 
 
@@ -26,6 +27,9 @@ class Library:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS clips (key TEXT PRIMARY KEY, filename TEXT NOT NULL)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS manual_run (id INTEGER PRIMARY KEY, data TEXT NOT NULL)"
+        )
         self.db.commit()
 
     def save(self, card: Card) -> Card:
@@ -41,13 +45,33 @@ class Library:
             raise KeyError(card_id)
         return Card.model_validate_json(row[0])
 
+    def _write_cards(self, cards: list[Card]) -> None:
+        self.db.executemany(
+            "INSERT OR REPLACE INTO cards VALUES (?, ?)",
+            [(card.id, card.model_dump_json()) for card in cards],
+        )
+
     def save_many(self, cards: list[Card]) -> list[Card]:
         with self.db:
-            self.db.executemany(
-                "INSERT OR REPLACE INTO cards VALUES (?, ?)",
-                [(card.id, card.model_dump_json()) for card in cards],
-            )
+            self._write_cards(cards)
         return cards
+
+    def manual_run(self) -> ManualRun | None:
+        row = self.db.execute("SELECT data FROM manual_run WHERE id=1").fetchone()
+        return ManualRun.model_validate_json(row[0]) if row else None
+
+    def save_manual(self, run: ManualRun, cards: list[Card] | None = None) -> None:
+        # Commit the drafts and the next batch together.
+        with self.db:
+            if cards:
+                self._write_cards(cards)
+            self.db.execute(
+                "INSERT OR REPLACE INTO manual_run VALUES (1, ?)", (run.model_dump_json(),)
+            )
+
+    def clear_manual(self) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM manual_run WHERE id=1")
 
     def all(self, limit: int = 10_000) -> list[Card]:
         return [

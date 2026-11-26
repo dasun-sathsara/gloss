@@ -1,6 +1,7 @@
 import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { Choice } from "./components/Choice";
+import { ManualBatch, ManualStart } from "./components/ManualGeneration";
 import { Modal } from "./components/Modal";
 import { Settings } from "./components/Settings";
 import { Spinner } from "./components/Spinner";
@@ -103,7 +104,7 @@ export default function App() {
             </AlertDescription>
           </Alert>
         )}
-        {!b.provider_ready && (
+        {g.generationMode === "api" && !b.provider_ready && (
           <Alert>
             <AlertDescription>
               <p>
@@ -141,7 +142,7 @@ export default function App() {
                 value={g.deck}
                 options={options}
                 onChange={g.chooseDeck}
-                disabled={g.busy}
+                disabled={g.busy || !!g.manual}
                 id="batch-deck"
               />
               {deckMissing && (
@@ -149,106 +150,146 @@ export default function App() {
                   This deck is missing in Anki. Choose an existing subdeck.
                 </p>
               )}
-              <div className="word-input-group">
-                <Field className="gap-1.5">
-                  <FieldLabel htmlFor="words-input">Words</FieldLabel>
-                  <Textarea
-                    id="words-input"
-                    placeholder="Paste words here, one per line"
-                    value={g.text}
-                    onChange={(event) => g.setText(event.target.value)}
+              {g.manual ? (
+                <ManualBatch
+                  key={g.manual.code}
+                  run={g.manual}
+                  busy={g.busy}
+                  error={g.manualError}
+                  onImport={g.importManual}
+                  onClose={g.closeManual}
+                />
+              ) : (
+                <>
+                  <Choice
+                    id="generation-mode"
+                    label="Generation mode"
+                    value={g.generationMode}
+                    options={[
+                      { value: "manual", label: "Manual copy & paste" },
+                      { value: "api", label: "Automatic generation" },
+                    ]}
+                    onChange={(value) => g.setGenerationMode(value as "api" | "manual")}
                     disabled={g.busy}
-                    maxLength={20000}
-                    rows={8}
-                    onKeyDown={(event) => {
-                      if (
-                        (event.ctrlKey || event.metaKey) &&
-                        event.key === "Enter" &&
-                        g.parsed?.count &&
-                        !g.busy &&
-                        b.provider_ready &&
-                        g.deck &&
-                        !deckMissing
-                      ) {
-                        event.preventDefault();
-                        void g.generate();
-                      }
-                    }}
                   />
-                </Field>
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="format-trigger">
-                      Input format
-                      <CaretDownIcon aria-hidden="true" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <p className="help">
-                      Separate words with new lines, commas, or semicolons. Add context as{" "}
-                      <code>word: hint</code>.
-                    </p>
-                  </CollapsibleContent>
-                </Collapsible>
-                {b.text_provider === "endpoint" && b.text_health !== "off" && (
-                  <p className={`endpoint-status ${b.text_health}`} role="status">
-                    <span className="endpoint-dot" aria-hidden="true" />
-                    {b.text_health === "ready"
-                      ? "Text endpoint ready"
-                      : b.text_health === "warming"
-                        ? "Warming up the text endpoint"
-                        : b.text_health_detail || "Text endpoint unreachable"}
-                  </p>
-                )}
-                {g.parsed && (
-                  <div className="estimate" role="status">
-                    <span>
-                      {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
-                    </span>
-                    {audioReady ? (
-                      <span>
-                        {b.audio_provider === "woof"
-                          ? "audio local"
-                          : `~$${g.parsed.estimate_usd.toFixed(2)} with audio`}
-                      </span>
-                    ) : (
-                      <span>text only, audio off</span>
-                    )}
-                  </div>
-                )}
-                {(() => {
-                  const issues =
-                    g.parsed?.entries.filter((entry) => entry.duplicate || entry.warning) ?? [];
-                  if (!issues.length) return null;
-                  return (
-                    <>
-                      {issues.slice(0, 5).map((entry) => {
-                        const label = entry.word
-                          ? `${entry.word.slice(0, 40)}${entry.word.length > 40 ? "…" : ""}: `
-                          : "";
-                        return (
-                          <p className="help" key={entry.index}>
-                            {label}
-                            {entry.warning || "Repeated in this batch"}
-                          </p>
-                        );
-                      })}
-                      {issues.length > 5 && (
-                        <p className="help">+{issues.length - 5} more warnings or duplicates</p>
+                  <div className="word-input-group">
+                    <Field className="gap-1.5">
+                      <FieldLabel htmlFor="words-input">Words</FieldLabel>
+                      <Textarea
+                        id="words-input"
+                        placeholder="Paste words here, one per line"
+                        value={g.text}
+                        onChange={(event) => g.setText(event.target.value)}
+                        disabled={g.busy}
+                        maxLength={20000}
+                        rows={8}
+                        onKeyDown={(event) => {
+                          if (
+                            (event.ctrlKey || event.metaKey) &&
+                            event.key === "Enter" &&
+                            g.parsed?.count &&
+                            !g.busy &&
+                            g.generationMode === "api" &&
+                            b.provider_ready &&
+                            g.deck &&
+                            !deckMissing
+                          ) {
+                            event.preventDefault();
+                            void g.generate();
+                          }
+                        }}
+                      />
+                    </Field>
+                    <Collapsible>
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" className="format-trigger">
+                          Input format
+                          <CaretDownIcon aria-hidden="true" />
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <p className="help">
+                          Separate words with new lines, commas, or semicolons. Add context as{" "}
+                          <code>word: hint</code>.
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
+                    {g.generationMode === "api" &&
+                      b.text_provider === "endpoint" &&
+                      b.text_health !== "off" && (
+                        <p className={`endpoint-status ${b.text_health}`} role="status">
+                          <span className="endpoint-dot" aria-hidden="true" />
+                          {b.text_health === "ready"
+                            ? "Text endpoint ready"
+                            : b.text_health === "warming"
+                              ? "Warming up the text endpoint"
+                              : b.text_health_detail || "Text endpoint unreachable"}
+                        </p>
                       )}
-                    </>
-                  );
-                })()}
-              </div>
-              <Button
-                className="generate-button"
-                disabled={g.busy || !g.parsed?.count || !b.provider_ready || !g.deck || deckMissing}
-                aria-busy={g.job?.kind === "text" || undefined}
-                onClick={() => g.generate()}
-              >
-                {g.job?.kind === "text" && <Spinner />}
-                {g.job?.kind === "text" ? "Generating…" : "Generate"}
-              </Button>
+                    {g.parsed && (
+                      <div className="estimate" role="status">
+                        <span>
+                          {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
+                        </span>
+                        {g.generationMode === "manual" ? (
+                          <span>no API key needed</span>
+                        ) : audioReady ? (
+                          <span>
+                            {b.audio_provider === "woof"
+                              ? "audio local"
+                              : `~$${g.parsed.estimate_usd.toFixed(2)} with audio`}
+                          </span>
+                        ) : (
+                          <span>text only, audio off</span>
+                        )}
+                      </div>
+                    )}
+                    {(() => {
+                      const issues =
+                        g.parsed?.entries.filter((entry) => entry.duplicate || entry.warning) ?? [];
+                      if (!issues.length) return null;
+                      return (
+                        <>
+                          {issues.slice(0, 5).map((entry) => {
+                            const label = entry.word
+                              ? `${entry.word.slice(0, 40)}${entry.word.length > 40 ? "…" : ""}: `
+                              : "";
+                            return (
+                              <p className="help" key={entry.index}>
+                                {label}
+                                {entry.warning || "Repeated in this batch"}
+                              </p>
+                            );
+                          })}
+                          {issues.length > 5 && (
+                            <p className="help">+{issues.length - 5} more warnings or duplicates</p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  {g.generationMode === "manual" ? (
+                    <ManualStart
+                      defaults={b.manual_defaults}
+                      busy={g.busy}
+                      disabled={!g.parsed?.count || !g.deck || deckMissing}
+                      onStart={g.startManual}
+                    />
+                  ) : (
+                    <Button
+                      className="generate-button"
+                      disabled={
+                        g.busy || !g.parsed?.count || !b.provider_ready || !g.deck || deckMissing
+                      }
+                      aria-busy={g.job?.kind === "text" || undefined}
+                      onClick={() => g.generate()}
+                    >
+                      {g.job?.kind === "text" && <Spinner />}
+                      {g.job?.kind === "text" ? "Generating…" : "Generate"}
+                    </Button>
+                  )}
+                </>
+              )}
             </section>
           )}
           <section className="review-section" aria-labelledby="review-heading">
@@ -408,7 +449,7 @@ export default function App() {
                 }
                 onDiscard={g.discardCard}
                 onRemove={(id) => g.setRemoveIds([id])}
-                onRetry={g.retry}
+                onRetry={b.provider_ready ? g.retry : undefined}
                 onListen={g.listen}
                 onStopAudio={g.stopAudio}
               />

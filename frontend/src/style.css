@@ -1104,3 +1104,25 @@ textarea {
     transform: scale(0.7);
   }
 }
+
+.manual-options {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.manual-options [role="alert"] {
+  overflow-wrap: anywhere;
+}
+
+.manual-options details > summary {
+  cursor: pointer;
+  margin-block-end: 0.5rem;
+}
+
+.manual-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}

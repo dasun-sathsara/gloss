@@ -42,7 +42,7 @@ export function WordEditor({
   onChange: (patch: Partial<Card>) => void;
   onSave: () => void;
   onDiscard: () => void;
-  onRetry: () => void;
+  onRetry?: () => void;
   onListen: (kind: Clip) => void;
   onClose: () => void;
 }) {
@@ -199,9 +199,11 @@ export function WordEditor({
         <Button size="sm" disabled={disabled || !dirty} onClick={onSave}>
           Save changes
         </Button>
-        <Button variant="ghost" size="sm" disabled={disabled || jobActive} onClick={onRetry}>
-          Regenerate
-        </Button>
+        {onRetry && (
+          <Button variant="ghost" size="sm" disabled={disabled || jobActive} onClick={onRetry}>
+            Regenerate
+          </Button>
+        )}
         <Button variant="ghost" size="sm" onClick={onClose}>
           Close editor
         </Button>

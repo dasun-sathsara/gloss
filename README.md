@@ -3,7 +3,8 @@
 Gloss creates English vocabulary flashcards with Sinhala meanings, two examples, and
 pronunciation audio. Review and edit the text, prepare audio, then send the cards to Anki.
 The app runs on your computer. Words come from Google or any OpenAI-compatible
-endpoint, and Google Cloud records the speech.
+endpoint, or from a JSON reply you paste from a chat app. Google Cloud or local Woof
+can record speech.
 
 ## Windows setup
 
@@ -12,8 +13,9 @@ endpoint, and Google Cloud records the speech.
 2. Clone this repository with Git. Open the checkout and double-click `Gloss.cmd`.
    The launcher installs Git and uv through winget when needed, downloads the latest
    release, and opens <http://127.0.0.1:8776>. Node and system FFmpeg are not required.
-3. Copy [.env.example](.env.example) to `%APPDATA%\Gloss\.env`. Fill in your Google Cloud
-   project and the path to your private service-account key, then restart Gloss.
+3. For manual generation, no text credentials are needed. For automatic generation,
+   copy [.env.example](.env.example) to `%APPDATA%\Gloss\.env`, configure your text provider,
+   then restart Gloss.
 4. Keep Anki open. In Gloss, open **Anki** and choose **Set up Anki**.
 
 AnkiConnect uses port 8765 by default. If your add-on uses another port, set
@@ -46,10 +48,30 @@ Gloss does not bundle or download them, and the model folder stays outside the c
 ## Use
 
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.
-Choose a deck once for the batch, then generate. Ctrl+Enter or Cmd+Enter also starts generation.
+Choose a deck once for the batch. Use **Automatic generation** if a provider is
+configured; Ctrl+Enter or Cmd+Enter also starts automatic generation.
 
-Gloss records audio for the word, definition, and both examples right after it writes
-the words. You can keep editing while audio records. Saving an edit re-records only the
+### Manual copy & paste
+
+1. Choose **Manual copy & paste**. Enter your words and choose the batch size (default 25).
+   Under **Customize prompts**, you can edit the writing instructions for a new chat and
+   for continuing the same chat. Gloss appends the required JSON format separately.
+2. Choose **Create manual batches**. Copy the full prompt into Gemini Web or another
+   chat. Paste its JSON reply back into Gloss, with or without the code fence.
+3. Validate the reply. Gloss saves nothing until every expected row passes. If it reports
+   a missing, duplicated, or wrong-batch row, keep the batch open and ask the chat for
+   a corrected reply. Words the model flags as unclear appear as drafts for review.
+4. For later batches in the same chat, copy the shorter continuation prompt. Copy the
+   full prompt any time you switch chats or the model loses the format. You can resize
+   future batches without changing the current prompt. Closing or refreshing Gloss
+   preserves the queue and saved drafts.
+5. Review the imported cards. **Prepare audio** is optional and works with local Woof
+   even without text credentials. **Sync to Anki** is a separate step.
+
+### Audio and sync
+
+In automatic mode, Gloss can record audio for the word, definition, and both examples
+right after it writes the words. You can keep editing while audio records. Saving an edit re-records only the
 changed clip. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
 audio in Settings to record only when you choose **Prepare audio**. New words join the
 unsynced words already in the batch for the same deck.
