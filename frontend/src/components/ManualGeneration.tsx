@@ -142,7 +142,6 @@ export function ManualBatch({
         <h2 role="status">
           {run.total} {run.total === 1 ? "word" : "words"} imported.
         </h2>
-        <p className="help">Check your drafts before you record audio or sync to Anki.</p>
         <Button disabled={busy} onClick={onClose}>
           Done
         </Button>
@@ -157,16 +156,13 @@ export function ManualBatch({
         </h2>
         <progress value={run.completed} max={run.total} aria-label="Words imported" />
         <p className="help">
-          {error
-            ? "Fix the reply"
-            : reply.trim()
-              ? "Reply ready to validate"
-              : draft.copied
-                ? "Waiting for a Gemini reply"
-                : "Copy the prompt to start this batch"}
-          <br />
-          Gloss imported {run.completed} of {run.total} words. This batch has {run.current_count}{" "}
-          {run.current_count === 1 ? "word" : "words"}.
+          {!error && draft.copied && !reply.trim() && (
+            <>
+              Waiting for a Gemini reply
+              <br />
+            </>
+          )}
+          Gloss imported {run.completed} of {run.total} words.
         </p>
       </div>
 
@@ -175,7 +171,7 @@ export function ManualBatch({
         <p className="help">
           {first
             ? "Paste the prompt into a new Gemini chat."
-            : "Paste the continuation prompt into the same Gemini chat."}
+            : "Use the full prompt in a new chat."}
         </p>
         <div className="manual-actions">
           <Button ref={copyButton} disabled={busy} onClick={() => void copy(defaultPrompt)}>
@@ -198,7 +194,6 @@ export function ManualBatch({
             {showPrompt ? "Hide prompt" : "View prompt"}
           </Button>
         </div>
-        {!first && <p className="help">Use the full prompt for a new chat.</p>}
         {copyStatus && (
           <p className="help" role="status">
             {copyStatus}

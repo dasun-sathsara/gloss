@@ -79,6 +79,13 @@ export function Settings({
   const locked = busy || saving;
   const googleAudio = draft.audio_provider === "google";
   const audioReady = demo || (googleAudio ? googleAudioAvailable : woofConfigured);
+  const audioChanges =
+    draft.audio_provider !== settings.audio_provider ||
+    (googleAudio
+      ? draft.voice !== settings.voice || draft.tts_model !== settings.tts_model
+      : (draft.woof_voice ?? woofDefaultVoice) !== (settings.woof_voice ?? woofDefaultVoice));
+  const ankiChanges =
+    draft.deck_parent !== settings.deck_parent || draft.note_type !== settings.note_type;
   const canAddDeck =
     !locked && anki.connected && !!name.trim() && draft.deck_parent === settings.deck_parent;
   const addDeck = async () => {
@@ -226,9 +233,10 @@ export function Settings({
           Record audio after generating words or saving edits
         </FieldLabel>
       </Field>
-      {!audioReady && (
+      {!audioReady && <p className="help">{audioSetupHint(draft.audio_provider)}</p>}
+      {audioChanges && (
         <p className="help">
-          {audioSetupHint(draft.audio_provider)} You can still make cards without audio.
+          Saving removes mismatched clips from cards. Gloss keeps the audio files.
         </p>
       )}
       <section className="settings-section">
@@ -249,9 +257,9 @@ export function Settings({
             />
           </Field>
         </div>
-        <p className="help">
-          After you change the parent deck or note type, open Anki in Gloss and choose Set up Anki.
-        </p>
+        {ankiChanges && (
+          <p className="help">After saving, open Anki in Gloss and choose Set up Anki.</p>
+        )}
         <div className="add-deck">
           <Field className="gap-1.5">
             <FieldLabel htmlFor="new-deck">New subdeck</FieldLabel>
@@ -328,10 +336,6 @@ export function Settings({
                 step: 0.0001,
               })}
           </div>
-          <p className="help">
-            Changing the engine, voice, or Google speech model removes mismatched clips from your
-            cards. Gloss keeps the old audio files.
-          </p>
           <p className="config-location">
             Configuration directory: <code>{configDir}</code>
           </p>

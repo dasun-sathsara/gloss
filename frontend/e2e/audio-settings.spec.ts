@@ -12,11 +12,23 @@ test("Woof is the default and the voice picker saves Mira", async ({ page }) => 
     const voice = page.getByRole("combobox", { name: "Woof voice" });
     const engine = page.getByRole("combobox", { name: "Audio engine" });
     await expect(voice).toHaveText("Juno");
+    await expect(page.getByText("Saving removes mismatched clips", { exact: false })).toHaveCount(
+      0,
+    );
+    const setupNote = page.getByText("After saving, open Anki in Gloss and choose Set up Anki.");
+    await expect(setupNote).toHaveCount(0);
+    const parentDeck = page.getByRole("textbox", { name: "Parent deck" });
+    await parentDeck.fill("Other");
+    await expect(setupNote).toBeVisible();
+    await parentDeck.fill(initial.settings.deck_parent);
+    await expect(setupNote).toHaveCount(0);
+
     await expect(engine).toHaveCount(0);
     await expect(page.getByRole("combobox", { name: "Google voice" })).toHaveCount(0);
     await voice.click();
     await expect(page.getByRole("option")).toHaveText(["Juno", "Mira"]);
     await page.getByRole("option", { name: "Mira" }).click();
+    await expect(page.getByText("Saving removes mismatched clips", { exact: false })).toBeVisible();
     await page.getByRole("button", { name: "Advanced settings" }).click();
     await expect(engine).toHaveText("Woof (local)");
     await engine.click();

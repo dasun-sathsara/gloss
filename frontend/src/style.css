@@ -772,10 +772,6 @@ textarea {
   block-size: 0.85em;
   color: var(--primary);
 }
-.job-hint {
-  color: var(--muted-foreground);
-  font-size: var(--type-meta);
-}
 [data-slot="collapsible-content"] {
   overflow: hidden;
 }

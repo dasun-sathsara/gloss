@@ -187,6 +187,7 @@ export default function App() {
                       <Textarea
                         id="words-input"
                         placeholder={"curious\npatient: willing to wait"}
+                        title="Separate entries with line breaks, commas, or semicolons. Put hints after a colon."
                         value={g.text}
                         onChange={(event) => g.setText(event.target.value)}
                         disabled={g.busy}
@@ -209,10 +210,6 @@ export default function App() {
                         }}
                       />
                     </Field>
-                    <p className="help">
-                      Use one word or phrase per line, or separate them with commas or semicolons.
-                      Put a hint after a colon.
-                    </p>
                     {g.generationMode === "api" &&
                       b.text_provider === "endpoint" &&
                       b.text_health !== "off" && (
@@ -230,17 +227,11 @@ export default function App() {
                         <span>
                           {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
                         </span>
-                        {g.generationMode === "manual" ? (
-                          <span>no API key needed</span>
-                        ) : audioReady ? (
-                          <span>
-                            {b.audio_provider === "woof"
-                              ? "audio local"
-                              : `~$${g.parsed.estimate_usd.toFixed(2)} with audio`}
-                          </span>
-                        ) : (
-                          <span>text only, audio off</span>
-                        )}
+                        {g.generationMode === "api" &&
+                          audioReady &&
+                          b.audio_provider === "google" && (
+                            <span>~${g.parsed.estimate_usd.toFixed(2)} USD with audio</span>
+                          )}
                       </div>
                     )}
                     {(() => {
@@ -402,17 +393,16 @@ export default function App() {
                 {g.readySelection.length > 0 && (
                   <p className="help">
                     {g.readySelection.length} {g.readySelection.length === 1 ? "card" : "cards"}{" "}
-                    ready for Anki. Audio is optional. {readyDecks.length === 1 ? "Deck" : "Decks"}:{" "}
+                    ready for Anki. {readyDecks.length === 1 ? "Deck" : "Decks"}:{" "}
                     {readyDecks.join(", ")}.
                   </p>
                 )}
                 {!g.anki.connected && (
-                  <p className="help">
-                    Open Anki with AnkiConnect to sync your cards.{" "}
+                  <div>
                     <Button variant="ghost" size="sm" onClick={() => g.setSetupOpen(true)}>
                       Anki help
                     </Button>
-                  </p>
+                  </div>
                 )}
               </>
             )}
@@ -474,9 +464,6 @@ export default function App() {
                         : "Writing words…"}
                     {g.progress?.total ? ` ${g.progress.completed}/${g.progress.total}` : ""}
                   </span>
-                  {g.audioRunning && (
-                    <span className="job-hint">You can edit cards while Gloss records audio.</span>
-                  )}
                 </span>
                 {g.job.kind !== "sync" && (
                   <Button
@@ -638,9 +625,6 @@ export default function App() {
               Move {g.anki.parent_cards} parent-deck cards into {b.settings.deck_default}
             </FieldLabel>
           </Field>
-        )}
-        {!b.fonts_complete && (
-          <p className="help">Add your licensed Studio Feixen Sans font to use it in Anki.</p>
         )}
         <div className="dialog-footer">
           <Button
