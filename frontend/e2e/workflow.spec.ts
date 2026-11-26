@@ -162,7 +162,7 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await page.getByRole("option", { name: "Dark", exact: true }).click();
   await page.getByRole("button", { name: "Advanced settings" }).click();
   await expectButtonInsets();
-  await page.getByLabel("Speech requests per minute", { exact: true }).fill("120");
+  await expect(page.getByRole("combobox", { name: "Audio engine" })).toHaveText("Woof (local)");
   await page.getByRole("button", { name: "Save settings", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await editor.getByRole("button", { name: "Close editor" }).click();

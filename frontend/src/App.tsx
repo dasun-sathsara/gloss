@@ -13,7 +13,15 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { WordTable } from "./components/WordTable";
 import { useGloss } from "./hooks/useGloss";
-import { api, type Card, type Decision, type Job, isReady, normalizedText } from "./lib";
+import {
+  api,
+  audioSetupHint,
+  type Card,
+  type Decision,
+  type Job,
+  isReady,
+  normalizedText,
+} from "./lib";
 
 export default function App() {
   const g = useGloss();
@@ -342,7 +350,7 @@ export default function App() {
                       disabled={g.busy || !g.missingCount || !audioReady}
                       title={
                         !audioReady
-                          ? "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
+                          ? audioSetupHint(b.audio_provider)
                           : g.readySelection.length && !g.missingCount
                             ? "Audio is ready for the selected words."
                             : undefined
@@ -565,12 +573,14 @@ export default function App() {
           manualActive={!!g.manual}
           settings={b.settings}
           voices={b.voices}
-          audioProvider={b.audio_provider}
-          audioVoice={b.audio_voice}
+          woofVoices={b.woof_voices}
+          woofDefaultVoice={b.woof_default_voice}
+          woofConfigured={b.woof_configured}
+          googleAudioAvailable={b.google_audio_available}
+          demo={b.demo}
           configDir={b.config_dir}
           anki={g.anki}
           busy={g.busy}
-          audioReady={audioReady}
           onSave={async (preferences, mode) => {
             await g.saveSettings(preferences);
             if (mode !== g.generationMode) g.chooseGenerationMode(mode);

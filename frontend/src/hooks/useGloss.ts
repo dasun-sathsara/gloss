@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AnkiStatus,
   api,
+  audioSetupHint,
   ApiError,
   type Bootstrap,
   type Card,
@@ -812,7 +813,7 @@ export function useGloss() {
     }
     void perform(async () => {
       if (!bootstrap?.audio_ready)
-        throw new Error("Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env.");
+        throw new Error(audioSetupHint(bootstrap?.audio_provider ?? "woof"));
       if (!isReady(card))
         throw new Error(
           "Complete all word, definition, and example fields before generating audio.",

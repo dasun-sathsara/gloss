@@ -29,21 +29,24 @@ lists the Anki steps still needed. Pass `-ApiKey` or paste the key when prompted
 Google Application Default Credentials also work. The default models are
 `gemini-3.8-flash` and `gemini-3.8-flash-tts` on the global endpoint. Your project needs
 access to those models, billing, and prediction permission. Gloss does not create
-cloud projects, keys, or IAM roles. Generation makes billable API calls.
+cloud projects, keys, or IAM roles. Google API calls are billable.
 
 To write words through an OpenAI-compatible `/chat/completions` endpoint instead, set
 `TEXT_API_BASE` (including `/v1`) and `TEXT_API_KEY` in the private `.env`. Text then
-comes from that endpoint and Google is only used for audio. Without a Google project,
-words still generate and audio stays off. The text model stays `gemini-3.8-flash` unless
-you change it in Settings, so choose a model the endpoint accepts.
+comes from that endpoint. The text model stays `gemini-3.8-flash` unless you change it
+in Settings, so choose a model the endpoint accepts.
 
-Audio makes four clips per card with Google Cloud by default. To record them on your own
-computer instead, download the two-voice
-[Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) model into a folder
-and set `WOOF_MODEL_DIR` to it in the private `.env`. Set `WOOF_VOICE` to `juno` (default)
-or `mira`. Woof runs on a CPU with numpy and needs no network, so with a text endpoint and
-Woof, Google is not needed at all. Its weights are licensed for non-commercial use, so
-Gloss does not bundle or download them, and the model folder stays outside the checkout.
+Woof is the default audio engine. Download the two-voice
+[Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) model, set
+`WOOF_MODEL_DIR` in the private `.env`, and restart Gloss. Choose Juno or Mira under
+**Woof voice** in Settings. An existing `WOOF_VOICE` value sets the default until you
+choose a voice in Settings. Woof runs on your CPU without an API key. Its weights are
+licensed for non-commercial use, so Gloss does not bundle them.
+
+If Woof is not set up, you can still make cards without audio. Gloss does not fall
+back to Google. To opt in to Google Cloud audio, configure your project and select
+**Google Cloud** under **Audio engine** in **Advanced settings**. Google voice and
+speech model controls appear there.
 
 ## Use
 

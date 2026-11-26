@@ -731,9 +731,6 @@ textarea {
 .add-deck > [data-slot="field"] {
   min-width: 0;
 }
-.settings-note {
-  grid-column: 1 / -1;
-}
 .job-status {
   position: relative;
   overflow: hidden;

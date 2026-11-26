@@ -105,7 +105,7 @@ def test_local_engine_selects_distinct_clip_keys(tmp_path):
     assert Configuration(tmp_path).preferences.audio_engine == "woof-mira-v2"
 
     (tmp_path / ".env").write_text("TEXT_API_BASE=https://example.test/v1\n")
-    assert Configuration(tmp_path).preferences.audio_engine == ""
+    assert Configuration(tmp_path).preferences.audio_engine == "woof-juno-v2"
 
     google = Preferences()
     juno = Preferences(audio_engine="woof-juno-v2")

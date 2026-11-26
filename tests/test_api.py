@@ -1,12 +1,12 @@
 import asyncio
 import json
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import httpx
 import respx
 
 from gloss.api.app import create_app
-from gloss.config import VOICES, Configuration
+from gloss.config import VOICES, WOOF_VOICES, Configuration
 
 
 def configured(tmp_path, **environment) -> Configuration:
@@ -234,7 +234,9 @@ async def test_bootstrap_reports_provider_and_audio_for_woof_and_google(tmp_path
     assert data["audio_provider"] == "woof"
     assert data["audio_voice"] == "juno"
     assert data["audio_ready"] is True
+    assert data["woof_voices"] == list(WOOF_VOICES)
     assert data["voices"] == []
+    assert data["woof_configured"] is True
 
     google = configured(
         tmp_path / "google-home",
@@ -246,12 +248,24 @@ async def test_bootstrap_reports_provider_and_audio_for_woof_and_google(tmp_path
     app = create_app(google)
     async with app.router.lifespan_context(app), client(app) as http:
         data = (await http.get("/api/bootstrap")).json()
-    assert data["text_provider"] == "google"
-    assert data["text_health"] == "off"
-    assert data["provider_ready"] is True
-    assert data["audio_provider"] == "google"
-    assert data["audio_voice"] == google.preferences.voice
-    assert data["voices"] == list(VOICES)
+        assert data["text_provider"] == "google"
+        assert data["text_health"] == "off"
+        assert data["provider_ready"] is True
+        assert data["audio_provider"] == "woof"
+        assert data["audio_ready"] is False
+        assert data["google_audio_available"] is True
+        http.headers["Origin"] = "http://127.0.0.1:8766"
+        assert (await http.post("/api/audio", json={"ids": ["any"]})).status_code == 400
+        saved = await http.put(
+            "/api/settings", json={**data["settings"], "audio_provider": "google"}
+        )
+        assert saved.status_code == 200
+        data = (await http.get("/api/bootstrap")).json()
+        assert data["audio_provider"] == "google"
+        assert data["audio_ready"] is True
+        assert data["audio_voice"] == google.preferences.voice
+        assert data["voices"] == list(VOICES)
+    assert Configuration(tmp_path / "google-home").preferences.audio_provider == "google"
 
 
 async def test_endpoint_warms_only_on_explicit_request(tmp_path, card):
@@ -564,3 +578,47 @@ async def test_local_woof_audio_does_not_require_text_credentials(tmp_path, card
         generate_test_audio.assert_awaited_once()
         assert generate_test_audio.await_args is not None
         assert generate_test_audio.await_args.args[2] is synth
+
+
+async def test_woof_voice_switch_recreates_synth_without_google(tmp_path, card, monkeypatch):
+    configuration = configured(
+        tmp_path,
+        google_cloud_project="configured-but-not-selected",
+        woof_model_dir=str(tmp_path),
+        woof_voice="juno",
+    )
+    variants = [AsyncMock(voice=voice, workers=1) for voice in ("juno", "mira")]
+    build_woof = Mock(side_effect=variants)
+    monkeypatch.setattr("gloss.api.app.WoofSynthesizer", build_woof)
+    google = Mock(side_effect=AssertionError("Woof must not contact Google"))
+    monkeypatch.setattr("gloss.api.app.make_client", google)
+    audio = AsyncMock(return_value={"clips": 1, "ready": 1, "failed": 0, "skipped": 0})
+    monkeypatch.setattr("gloss.core.orchestrator.Orchestrator.audio", audio)
+    app = create_app(configuration)
+    app.state.library.save(card)
+    async with app.router.lifespan_context(app), client(app) as http:
+        http.headers["Origin"] = "http://127.0.0.1:8766"
+
+        async def record():
+            response = await http.post("/api/audio", json={"ids": [card.id]})
+            assert response.status_code == 200, response.text
+            await app.state.jobs.get(response.json()["id"]).task
+
+        await record()
+        data = (await http.get("/api/bootstrap")).json()
+        assert data["audio_voice"] == "juno"
+        assert (
+            await http.put("/api/settings", json={**data["settings"], "woof_voice": "Kore"})
+        ).status_code == 422
+        saved = await http.put("/api/settings", json={**data["settings"], "woof_voice": "mira"})
+        assert saved.status_code == 200
+        assert saved.json()["audio_engine"] == "woof-mira-v2"
+        await record()
+        data = (await http.get("/api/bootstrap")).json()
+        assert data["audio_voice"] == "mira"
+        variants[0].aclose.assert_awaited_once_with(wait=False)
+        google.assert_not_called()
+        assert [call.args[1] for call in build_woof.call_args_list] == ["juno", "mira"]
+        assert [call.args[2] for call in audio.await_args_list] == variants
+
+    assert Configuration(tmp_path).preferences.woof_voice == "mira"

@@ -17,10 +17,10 @@ from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from pathlib import Path
 
+from gloss.config import WOOF_VOICES
 from gloss.core.ports import ProviderError
 from gloss.providers.vertex import encode_mp3
 
-WOOF_VOICES = ("juno", "mira")
 WOOF_SAMPLE_RATE = 24000
 # Woof pads short clips with up to 0.3 s of silence at each end. Keep a small
 # breath around the speech, then even out loudness so cards play at one level.
@@ -52,7 +52,7 @@ def validate_model(model_dir: Path, voice: str) -> None:
             fatal=True,
         )
     if voice not in WOOF_VOICES:
-        raise ProviderError(f"WOOF_VOICE must be juno or mira, not {voice}.", fatal=True)
+        raise ProviderError(f"Woof voice must be juno or mira, not {voice}.", fatal=True)
 
 
 def load_model(model_dir: Path, voice: str):

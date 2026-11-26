@@ -24,6 +24,8 @@ export interface Card {
   note_id: number | null;
   synced_hash: string;
 }
+export type WoofVoice = "juno" | "mira";
+
 export interface Preferences {
   batch_size: number;
   manual_batch_size: number;
@@ -31,6 +33,8 @@ export interface Preferences {
   text_model: string;
   tts_model: string;
   voice: string;
+  audio_provider: "woof" | "google";
+  woof_voice: WoofVoice | null;
   deck_parent: string;
   deck_default: string;
   seed_decks: string[];
@@ -103,6 +107,10 @@ export interface ManualRun {
 export interface Bootstrap {
   settings: Preferences;
   voices: string[];
+  woof_voices: WoofVoice[];
+  woof_default_voice: WoofVoice;
+  woof_configured: boolean;
+  google_audio_available: boolean;
   cards: Card[];
   card_count: number;
   library_truncated: boolean;
@@ -113,12 +121,18 @@ export interface Bootstrap {
   text_health: "off" | "warming" | "ready" | "down";
   text_health_detail: string;
   audio_ready: boolean;
-  audio_provider: "demo" | "woof" | "google" | "";
+  audio_provider: "demo" | "woof" | "google";
   audio_voice: string;
   config_dir: string;
   demo: boolean;
   fonts_complete: boolean;
 }
+export function audioSetupHint(provider: Bootstrap["audio_provider"]) {
+  return provider === "google"
+    ? "Configure a Google Cloud project in the config .env and restart Gloss."
+    : "Set WOOF_MODEL_DIR in the config .env and restart Gloss.";
+}
+
 export interface Conflict {
   id: string;
   word: string;

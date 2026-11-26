@@ -19,7 +19,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from gloss.anki.client import AnkiClient
 from gloss.anki.gateway import AnkiGateway
 from gloss.anki.templates import available_fonts
-from gloss.config import VOICES, Configuration, Preferences
+from gloss.config import VOICES, WOOF_VOICES, Configuration, Preferences
 from gloss.core.events import Job, Jobs
 from gloss.core.manual import ManualRun
 from gloss.core.models import CLIP_KINDS, Card, ClipKind, Entry
@@ -279,10 +279,13 @@ def create_app(
             await operation(job, DemoLanguageModel(), DemoSynthesizer(), preferences)
             return
         environment = configuration.environment
-        google = bool(environment.google_cloud_project)
+        uses_google_text = job.kind != "audio" and not environment.text_api_base
+        uses_google_audio = preferences.audio_provider == "google" and (
+            job.kind == "audio" or preferences.auto_audio
+        )
         client = (
             make_client(configuration)
-            if google and (job.kind != "audio" or not environment.woof_model_dir)
+            if environment.google_cloud_project and (uses_google_text or uses_google_audio)
             else None
         )
         text: VertexLanguageModel | ChatCompletionsLanguageModel | None = None
@@ -306,16 +309,18 @@ def create_app(
                         "credentials, to the config .env.",
                         fatal=True,
                     )
-            if environment.woof_model_dir:
+            if preferences.audio_provider == "woof" and environment.woof_model_dir:
+                voice = configuration.woof_voice(preferences)
+                if woof_synth is not None and woof_synth.voice != voice:
+                    await woof_synth.aclose(wait=False)
+                    woof_synth = None
                 if woof_synth is None:
-                    woof_synth = WoofSynthesizer(
-                        Path(environment.woof_model_dir), environment.woof_voice
-                    )
+                    woof_synth = WoofSynthesizer(Path(environment.woof_model_dir), voice)
                 synth = woof_synth
                 # Local clips cost nothing and answer to no quota; use every available core.
                 preferences.tts_rpm = 0
                 preferences.tts_concurrency = synth.workers
-            elif client:
+            elif uses_google_audio and client:
                 synth = VertexSynthesizer(client, preferences)
             await operation(job, text, synth, preferences)
         except asyncio.CancelledError:
@@ -333,7 +338,11 @@ def create_app(
 
     def audio_ready() -> bool:
         environment = configuration.environment
-        return demo or bool(environment.google_cloud_project) or bool(environment.woof_model_dir)
+        return demo or bool(
+            environment.woof_model_dir
+            if configuration.preferences.audio_provider == "woof"
+            else environment.google_cloud_project
+        )
 
     def text_ready() -> bool:
         environment = configuration.environment
@@ -377,7 +386,11 @@ def create_app(
         environment = configuration.environment
         return {
             "settings": configuration.preferences,
-            "voices": [] if (not demo and environment.woof_model_dir) else VOICES,
+            "voices": VOICES if environment.google_cloud_project else [],
+            "woof_voices": WOOF_VOICES,
+            "woof_default_voice": configuration.woof_voice(),
+            "woof_configured": bool(environment.woof_model_dir),
+            "google_audio_available": bool(environment.google_cloud_project),
             "cards": cards,
             "card_count": total,
             "manual": manual.status() if manual else None,
@@ -396,15 +409,9 @@ def create_app(
             "text_health": text_health["state"],
             "text_health_detail": text_health["detail"],
             "audio_ready": audio_ready(),
-            "audio_provider": "demo"
-            if demo
-            else "woof"
-            if environment.woof_model_dir
-            else "google"
-            if environment.google_cloud_project
-            else "",
-            "audio_voice": environment.woof_voice
-            if environment.woof_model_dir
+            "audio_provider": "demo" if demo else configuration.preferences.audio_provider,
+            "audio_voice": configuration.woof_voice(configuration.preferences)
+            if configuration.preferences.audio_provider == "woof"
             else configuration.preferences.voice,
             "config_dir": str(configuration.directory),
             "demo": demo,
@@ -416,6 +423,12 @@ def create_app(
     async def settings(preferences: Preferences):
         idle()
         previous_text_model = configuration.preferences.text_model
+        if (
+            preferences.audio_provider == "google"
+            and not configuration.environment.google_cloud_project
+            and configuration.preferences.audio_provider != "google"
+        ):
+            raise ValueError("Configure a Google Cloud project before enabling Google audio.")
         configuration.save(preferences)
         clips_by_key = library.clip_map()
         changed: list[Card] = []
@@ -550,7 +563,9 @@ def create_app(
         idle()
         if not audio_ready():
             raise ValueError(
-                "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
+                "Set WOOF_MODEL_DIR in the config .env and restart Gloss."
+                if configuration.preferences.audio_provider == "woof"
+                else "Configure a Google Cloud project in the config .env and restart Gloss."
             )
         cards = valid_cards(selected(selection.ids))
         if any(not card.ready() for card in cards):
