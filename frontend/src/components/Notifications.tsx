@@ -14,18 +14,24 @@ export function Notifications({
   theme: Preferences["theme"];
 }) {
   const previous = useRef({ notice: "", error: "" });
+  const activeToast = useRef<string | number | null>(null);
 
   useEffect(() => {
     const { notice: oldNotice, error: oldError } = previous.current;
     previous.current = { notice, error };
-    // A new error replaces any earlier success message. Dialogs own their own errors.
+    const dismissPrevious = () => {
+      if (activeToast.current !== null) toast.dismiss(activeToast.current);
+      activeToast.current = null;
+    };
+    // Each notification gets a new ID so an older toast's exit cannot remove it.
     if (error && error !== oldError) {
-      if (inlineError) toast.dismiss("gloss-feedback");
-      else toast.error(error, { id: "gloss-feedback", duration: 6500 });
+      dismissPrevious();
+      if (!inlineError) activeToast.current = toast.error(error, { duration: 6500 });
     } else if (!error && notice && notice !== oldNotice) {
-      toast(notice, { id: "gloss-feedback" });
+      dismissPrevious();
+      activeToast.current = toast(notice);
     } else if (!error && !notice) {
-      toast.dismiss("gloss-feedback");
+      dismissPrevious();
     }
   }, [error, inlineError, notice]);
 
