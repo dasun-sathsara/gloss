@@ -104,17 +104,6 @@ export default function App() {
             </AlertDescription>
           </Alert>
         )}
-        {g.generationMode === "api" && !b.provider_ready && (
-          <Alert>
-            <AlertDescription>
-              <p>
-                Add a text endpoint as <code>TEXT_API_BASE</code> and <code>TEXT_API_KEY</code>, or
-                the Google project and credentials, to the <code>.env</code> in{" "}
-                <code>{b.config_dir}</code>, then restart Gloss.
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
         {g.error && (
           <Alert variant="destructive" className="message">
             <AlertDescription>{g.error}</AlertDescription>
@@ -167,9 +156,15 @@ export default function App() {
                     value={g.generationMode}
                     options={[
                       { value: "manual", label: "Manual copy & paste" },
-                      { value: "api", label: "Automatic generation" },
+                      {
+                        value: "api",
+                        label: b.provider_ready
+                          ? "Automatic generation"
+                          : "Automatic (not configured)",
+                        disabled: !b.provider_ready,
+                      },
                     ]}
-                    onChange={(value) => g.setGenerationMode(value as "api" | "manual")}
+                    onChange={(value) => g.chooseGenerationMode(value as "api" | "manual")}
                     disabled={g.busy}
                   />
                   <div className="word-input-group">
@@ -450,7 +445,7 @@ export default function App() {
                 }
                 onDiscard={g.discardCard}
                 onRemove={(id) => g.setRemoveIds([id])}
-                onRetry={b.provider_ready ? g.retry : undefined}
+                onRetry={g.generationMode === "api" && b.provider_ready ? g.retry : undefined}
                 onListen={g.listen}
                 onStopAudio={g.stopAudio}
               />

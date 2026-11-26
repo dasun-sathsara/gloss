@@ -25,8 +25,9 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
     route.fulfill({ json: { connected: false, ready: false, decks: [] } }),
   );
   await page.goto("/");
-  await page.getByRole("combobox", { name: "Generation mode" }).click();
-  await page.getByRole("option", { name: "Manual copy & paste" }).click();
+  await expect(page.getByRole("combobox", { name: "Generation mode" })).toHaveText(
+    "Manual copy & paste",
+  );
   await page.getByLabel("Words", { exact: true }).fill("curious\nresilient\npatient");
   await page.getByLabel("Words per prompt").fill("2");
   await expect(page.getByText("3 words in 2 batches")).toBeVisible();
@@ -96,6 +97,19 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
     });
     expect(response.ok()).toBe(true);
   }
+});
+
+test("automatic generation is unavailable without a text provider", async ({ page }) => {
+  await page.route("**/api/bootstrap", async (route) => {
+    const response = await route.fetch();
+    const state = (await response.json()) as Bootstrap;
+    await route.fulfill({ response, json: { ...state, provider_ready: false, text_provider: "" } });
+  });
+  await page.goto("/");
+  const mode = page.getByRole("combobox", { name: "Generation mode" });
+  await expect(mode).toHaveText("Manual copy & paste");
+  await mode.click();
+  await expect(page.getByRole("option", { name: "Automatic (not configured)" })).toBeDisabled();
 });
 
 test("restoring a manual run never selects unrelated library drafts", async ({ page, baseURL }) => {

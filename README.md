@@ -48,12 +48,13 @@ Gloss does not bundle or download them, and the model folder stays outside the c
 ## Use
 
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.
-Choose a deck once for the batch. Use **Automatic generation** if a provider is
-configured; Ctrl+Enter or Cmd+Enter also starts automatic generation.
+Choose a deck once for the batch. Gloss starts in manual mode. To use the API,
+configure a text provider and explicitly select **Automatic generation**.
+In that mode, Ctrl+Enter or Cmd+Enter also starts generation.
 
 ### Manual copy & paste
 
-1. Choose **Manual copy & paste**. Enter your words and choose the batch size (default 25).
+1. Enter your words and choose the batch size (default 25).
 2. Choose **Start manual generation**. Copy the full prompt into Gemini Web or another
    chat. Return to Gloss and choose **Paste reply** or paste into the JSON field yourself.
    Gloss accepts JSON with or without the code fence.

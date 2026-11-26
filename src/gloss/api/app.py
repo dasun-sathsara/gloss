@@ -101,7 +101,7 @@ def create_app(
         return path == "/api/parse" or bool(re.fullmatch(r"/api/jobs/[^/]+/cancel", path))
 
     async def warm_text() -> None:
-        """Send one tiny completion so a cold router is ready before the user asks."""
+        """Probe the endpoint after the user opts into automatic generation."""
         current = asyncio.current_task()
         environment = configuration.environment
         if not environment.text_api_base or not environment.text_api_key:
@@ -171,7 +171,6 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         nonlocal woof_synth
-        start_warm()
         yield
         if warm_task and not warm_task.done():
             warm_task.cancel()
@@ -430,9 +429,15 @@ def create_app(
                 changed.append(card)
         if changed:
             library.save_many(changed)
-        if configuration.preferences.text_model != previous_text_model:
+        if configuration.preferences.text_model != previous_text_model and warm_task is not None:
             start_warm()
         return configuration.preferences
+
+    @app.post("/api/text/warm")
+    async def warm_endpoint():
+        if text_health["state"] in {"off", "down"}:
+            start_warm()
+        return await health()
 
     @app.post("/api/parse")
     async def parse(paste: Paste):

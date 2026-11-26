@@ -166,7 +166,6 @@ export function useGloss() {
         setCards(value.cards);
         setJob(value.active_job);
         setManual(value.manual);
-        setGenerationMode(value.manual || !value.provider_ready ? "manual" : "api");
         setDeck(
           (old) =>
             old ||
@@ -441,6 +440,19 @@ export function useGloss() {
       setError(error instanceof Error ? error.message : "The action failed. Try again.");
     } finally {
       setPending(false);
+    }
+  };
+  const chooseGenerationMode = (mode: "api" | "manual") => {
+    if (mode === "api" && !bootstrap?.provider_ready) return;
+    setGenerationMode(mode);
+    if (mode === "api" && bootstrap?.text_provider === "endpoint") {
+      void perform(async () => {
+        const status = await api<Pick<Bootstrap, "text_health" | "text_health_detail">>(
+          "/text/warm",
+          "POST",
+        );
+        setBootstrap((old) => (old ? { ...old, ...status } : old));
+      });
     }
   };
   const saveCard = async (card: Card) => {
@@ -836,7 +848,7 @@ export function useGloss() {
     changeCard,
     generate,
     generationMode,
-    setGenerationMode,
+    chooseGenerationMode,
     manual,
     manualError,
     startManual,

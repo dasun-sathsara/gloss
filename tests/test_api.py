@@ -244,7 +244,7 @@ async def test_bootstrap_reports_provider_and_audio_for_woof_and_google(tmp_path
     assert data["voices"] == list(VOICES)
 
 
-async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path, card):
+async def test_endpoint_warms_only_on_explicit_request(tmp_path, card):
     configuration = configured(
         tmp_path / "ready",
         google_cloud_project="",
@@ -261,6 +261,13 @@ async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path, card):
         )
         app = create_app(configuration)
         async with app.router.lifespan_context(app), client(app) as http:
+            initial = (await http.get("/api/bootstrap")).json()
+            assert initial["provider_ready"]
+            assert initial["text_health"] == "off"
+            assert route.call_count == 0
+            http.headers["Origin"] = "http://127.0.0.1:8766"
+            start = await http.post("/api/text/warm")
+            assert start.status_code == 200
             data = await settled(http)
     assert data["text_health"] == "ready"
     assert data["text_health_detail"] == ""
@@ -297,6 +304,13 @@ async def test_bootstrap_warms_endpoint_and_reports_health(tmp_path, card):
             ]
         )
         async with app.router.lifespan_context(app), client(app) as http:
+            initial = (await http.get("/api/bootstrap")).json()
+            assert initial["provider_ready"]
+            assert initial["text_health"] == "off"
+            assert route.call_count == 0
+            http.headers["Origin"] = "http://127.0.0.1:8766"
+            start = await http.post("/api/text/warm")
+            assert start.status_code == 200
             data = await settled(http)
             assert data["text_health"] == "down"
             assert "503" in data["text_health_detail"]

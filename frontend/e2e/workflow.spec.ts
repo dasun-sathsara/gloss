@@ -82,6 +82,8 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     }),
   );
   await page.goto("/");
+  await page.getByRole("combobox", { name: "Generation mode" }).click();
+  await page.getByRole("option", { name: "Automatic generation" }).click();
   expect((await page.request.get("/favicon.svg")).status()).toBe(200);
   await page
     .getByRole("textbox", { name: "Words", exact: true })
@@ -186,6 +188,10 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     .getByRole("button", { name: "Close editor", exact: true })
     .click();
   await page.reload();
+  const mode = page.getByRole("combobox", { name: "Generation mode" });
+  await expect(mode).toHaveText("Manual copy & paste");
+  await mode.click();
+  await page.getByRole("option", { name: "Automatic generation" }).click();
   await expect(page.locator(".word-row")).toHaveCount(3);
   await expect(deck).toHaveText("Science");
   await expect(
