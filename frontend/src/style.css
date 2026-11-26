@@ -1126,3 +1126,10 @@ textarea {
   flex-wrap: wrap;
   gap: 0.5rem;
 }
+
+.composer .manual-options textarea {
+  field-sizing: fixed;
+  min-height: 0;
+  max-height: 24rem;
+  overflow-y: auto;
+}
