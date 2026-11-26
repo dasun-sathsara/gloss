@@ -174,29 +174,24 @@ export function useGloss() {
             value.settings.last_deck ||
             `${value.settings.deck_parent}::${value.settings.deck_default}`,
         );
-        const restoredIds = new Set(
-          [...initialBatchIds.current, ...(value.manual?.card_ids ?? [])].filter((id) =>
-            value.cards.some((card) => card.id === id),
-          ),
+        const importedIds = new Set(value.manual?.card_ids ?? []);
+        const manualDeck = value.manual?.deck;
+        const restored = value.cards.filter((card) =>
+          manualDeck
+            ? card.deck === manualDeck &&
+              (importedIds.has(card.id) || (!card.note_id && initialBatchIds.current.has(card.id)))
+            : initialBatchIds.current.has(card.id),
         );
-        if (restoredIds.size) {
-          setBatchIds(restoredIds);
-          const restored = value.cards.find((card) => restoredIds.has(card.id));
-          if (restored?.deck) setDeck(restored.deck);
-          setSelected(
-            new Set(
-              value.cards
-                .filter((card) => restoredIds.has(card.id) && isReady(card))
-                .map((card) => card.id),
-            ),
-          );
-        } else {
-          const drafts = value.cards.filter((card) => !card.note_id).slice(0, 100);
-          setBatchIds(new Set(drafts.map((card) => card.id)));
-          setSelected(new Set(drafts.filter(isReady).map((card) => card.id)));
-          if (drafts[0]?.deck) setDeck(drafts[0].deck);
-        }
-        if (value.manual) setDeck(value.manual.deck);
+        // An empty manual batch is intentional. Never populate it from unrelated
+        // library drafts: the Batch view can move every card to its selected deck.
+        const batch =
+          manualDeck || restored.length
+            ? restored
+            : value.cards.filter((card) => !card.note_id).slice(0, 100);
+        setBatchIds(new Set(batch.map((card) => card.id)));
+        setSelected(new Set(batch.filter(isReady).map((card) => card.id)));
+        const restoredDeck = manualDeck || batch[0]?.deck;
+        if (restoredDeck) setDeck(restoredDeck);
       })
       .catch((error) => setError(error.message));
     refreshAnki().catch((error) => setError(error.message));
