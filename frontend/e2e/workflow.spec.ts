@@ -304,9 +304,46 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     .locator(".row-actions button")
     .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top));
   expect(rowActionTops[0]).toEqual(rowActionTops[1]);
-  await page.setViewportSize({ width: 900, height: 900 });
-  await expectNoOverflow();
-  await expectButtonInsets();
+  const review = page.locator(".review-section");
+  await expect(review).toHaveCSS("border-top-width", "1px");
+  expect(
+    await review.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.backgroundColor !== getComputedStyle(document.body).backgroundColor;
+    }),
+  ).toBe(true);
+  for (const width of [1050, 900, 800]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expectNoOverflow();
+    await expectButtonInsets();
+    const buttons = await review.locator(".bulk-actions button").evaluateAll((elements) =>
+      elements.map((element) => {
+        const { top, width, height } = element.getBoundingClientRect();
+        return { top, width, height };
+      }),
+    );
+    for (const button of buttons.slice(1)) {
+      expect(button.top).toEqual(buttons[0].top);
+      expect(button.height).toEqual(buttons[0].height);
+      expect(Math.abs(button.width - buttons[0].width)).toBeLessThan(1);
+    }
+    const widths = await curious.locator(".meaning-column").evaluate((element) => ({
+      cell: element.getBoundingClientRect().width,
+      panel: element.closest(".review-section")!.getBoundingClientRect().width,
+    }));
+    expect(widths.cell).toBeGreaterThan(widths.panel * 0.25);
+  }
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings", exact: true });
+  const dialogAlignment = await settings.evaluate((dialog) => {
+    const centerY = (selector: string) => {
+      const rect = dialog.querySelector(selector)!.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    };
+    return Math.abs(centerY('[data-slot="dialog-title"]') - centerY('[data-slot="dialog-close"]'));
+  });
+  expect(dialogAlignment).toBeLessThan(1);
+  await settings.getByRole("button", { name: "Close", exact: true }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNoOverflow();
   await expectButtonInsets();

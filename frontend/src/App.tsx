@@ -320,24 +320,24 @@ export default function App() {
             </div>
             {hasCards && (
               <>
-                <div className="review-toolbar">
-                  <span className="selection-count">{g.selected.size} selected</span>
-                  {hiddenCount > 0 && (
+                {hiddenCount > 0 && (
+                  <div className="selection-warning">
                     <span>
                       This filter hides {hiddenCount} selected{" "}
-                      {hiddenCount === 1 ? "card" : "cards"}. Actions still include them.{" "}
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={g.busy}
-                        onClick={() =>
-                          g.setSelected(new Set(g.visibleCards.map((card) => card.id)))
-                        }
-                      >
-                        Select visible only
-                      </Button>
+                      {hiddenCount === 1 ? "card" : "cards"}. Actions still include them.
                     </span>
-                  )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={g.busy}
+                      onClick={() => g.setSelected(new Set(g.visibleCards.map((card) => card.id)))}
+                    >
+                      Select visible only
+                    </Button>
+                  </div>
+                )}
+                <div className="review-toolbar">
+                  <span className="selection-count">{g.selected.size} selected</span>
                   <div className="bulk-actions">
                     <Button
                       variant="outline"
@@ -390,24 +390,28 @@ export default function App() {
                     </Button>
                   </div>
                 </div>
-                {g.readySelection.length > 0 && (
-                  <p className="help">
-                    {g.readySelection.length} {g.readySelection.length === 1 ? "card" : "cards"}{" "}
-                    ready for Anki. {readyDecks.length === 1 ? "Deck" : "Decks"}:{" "}
-                    {readyDecks.join(", ")}.
-                  </p>
-                )}
-                {!g.anki.connected && (
-                  <div>
-                    <Button variant="ghost" size="sm" onClick={() => g.setSetupOpen(true)}>
-                      Anki help
-                    </Button>
+                {(g.readySelection.length > 0 || !g.anki.connected) && (
+                  <div className="review-meta">
+                    {g.readySelection.length > 0 && (
+                      <p className="help">
+                        {g.readySelection.length} {g.readySelection.length === 1 ? "card" : "cards"}{" "}
+                        ready for Anki. {readyDecks.length === 1 ? "Deck" : "Decks"}:{" "}
+                        {readyDecks.join(", ")}.
+                      </p>
+                    )}
+                    {!g.anki.connected && (
+                      <div>
+                        <Button variant="ghost" size="sm" onClick={() => g.setSetupOpen(true)}>
+                          Anki help
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 )}
               </>
             )}
             {recovery && remaining.length > 0 && (
-              <div className="notice message">
+              <div className="notice message anki-recovery">
                 <div>
                   <p>
                     Gloss saved {recovery.saved} {recovery.saved === 1 ? "card" : "cards"} in Anki
