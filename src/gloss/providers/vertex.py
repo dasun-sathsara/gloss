@@ -159,11 +159,7 @@ def encode_mp3(data: bytes, bitrate: str = "64k") -> bytes:
             capture_output=True,
             timeout=60,
             check=True,
-            **(
-                {"creationflags": subprocess.CREATE_NO_WINDOW}
-                if hasattr(subprocess, "CREATE_NO_WINDOW")
-                else {}
-            ),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ProviderError(
