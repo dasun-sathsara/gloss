@@ -9,12 +9,18 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collap
 import { Field, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 
-type NumericKey = "word_cap" | "tts_rpm" | "call_budget" | "estimated_usd_per_word";
+type NumericKey =
+  | "manual_batch_size"
+  | "word_cap"
+  | "tts_rpm"
+  | "call_budget"
+  | "estimated_usd_per_word";
 
 const numericSpecs: Record<
   NumericKey,
   { label: string; min: number; max: number; integer: boolean }
 > = {
+  manual_batch_size: { label: "Words per manual batch", min: 1, max: 100, integer: true },
   word_cap: { label: "Word cap", min: 1, max: 100, integer: true },
   tts_rpm: { label: "Speech requests per minute", min: 1, max: 120, integer: true },
   call_budget: { label: "Audio clip ceiling per run", min: 4, max: 1000, integer: true },
@@ -46,6 +52,7 @@ export function Settings({
 }) {
   const [draft, setDraft] = useState(settings);
   const [numericText, setNumericText] = useState<Record<NumericKey, string>>(() => ({
+    manual_batch_size: String(settings.manual_batch_size),
     word_cap: String(settings.word_cap),
     tts_rpm: String(settings.tts_rpm),
     call_budget: String(settings.call_budget),
@@ -105,8 +112,8 @@ export function Settings({
         const parsedNumbers: Partial<Record<NumericKey, number>> = {};
         const keys: NumericKey[] =
           audioProvider === "woof"
-            ? ["word_cap", "call_budget"]
-            : ["word_cap", "tts_rpm", "call_budget", "estimated_usd_per_word"];
+            ? ["manual_batch_size", "word_cap", "call_budget"]
+            : ["manual_batch_size", "word_cap", "tts_rpm", "call_budget", "estimated_usd_per_word"];
         for (const key of keys) {
           const spec = numericSpecs[key];
           const raw = numericText[key].trim();
@@ -161,8 +168,9 @@ export function Settings({
             onChange={(value) => change("voice", value)}
           />
         )}
+        {input("manual_batch_size", "Words per manual batch", { min: 1, max: 100 })}
         <Choice
-          label="Words per request"
+          label="Words per API request"
           value={String(draft.batch_size)}
           disabled={locked}
           options={[1, 3, 5].map((value) => ({ value: String(value), label: String(value) }))}

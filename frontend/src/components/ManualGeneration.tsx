@@ -2,77 +2,30 @@ import { useRef, useState } from "react";
 import type { ManualRun } from "../lib";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
-import { Field, FieldLabel } from "./ui/field";
-import { Input } from "./ui/input";
 import { Textarea } from "./ui/textarea";
 
-const sizeKey = "gloss-manual-size";
-
-function validSize(value: number) {
-  return Number.isInteger(value) && value >= 1 && value <= 100;
-}
-
-function loadSize(defaultSize: number) {
-  try {
-    const value = localStorage.getItem(sizeKey);
-    const size = Number(
-      value ?? JSON.parse(localStorage.getItem("gloss-manual-options") || "{}").size,
-    );
-    return validSize(size) ? size : defaultSize;
-  } catch {
-    return defaultSize;
-  }
-}
-
 export function ManualStart({
-  defaultSize,
+  size,
   wordCount,
   busy,
   disabled,
   onStart,
 }: {
-  defaultSize: number;
+  size: number;
   wordCount: number;
   busy: boolean;
   disabled: boolean;
-  onStart: (size: number) => void;
+  onStart: () => void;
 }) {
-  const [size, setSize] = useState(() => loadSize(defaultSize));
-  const count = validSize(size) ? Math.ceil(wordCount / size) : 0;
+  const count = Math.ceil(wordCount / size);
   return (
     <div className="manual-options">
-      <Field>
-        <FieldLabel htmlFor="manual-size">Words per prompt</FieldLabel>
-        <Input
-          id="manual-size"
-          type="number"
-          min={1}
-          max={100}
-          value={size || ""}
-          disabled={busy}
-          aria-describedby="manual-size-hint"
-          onChange={(event) => setSize(Number(event.target.value))}
-        />
-        <p className="help" id="manual-size-hint">
-          {!validSize(size)
-            ? "Enter a batch size from 1 to 100."
-            : count
-              ? `${wordCount} ${wordCount === 1 ? "word" : "words"} in ${count} ${count === 1 ? "batch" : "batches"}`
-              : "Try 25 words per prompt."}
+      {count > 0 && (
+        <p className="help">
+          {count} {count === 1 ? "batch" : "batches"} · up to {size} words each
         </p>
-      </Field>
-      <Button
-        disabled={disabled || busy || !validSize(size)}
-        onClick={() => {
-          try {
-            localStorage.setItem(sizeKey, String(size));
-            localStorage.removeItem("gloss-manual-options");
-          } catch {
-            // The current run can still start if browser storage is disabled.
-          }
-          onStart(size);
-        }}
-      >
+      )}
+      <Button disabled={disabled || busy} onClick={onStart}>
         Start manual generation
       </Button>
     </div>
@@ -89,11 +42,10 @@ export function ManualBatch({
   run: ManualRun;
   busy: boolean;
   error: string;
-  onImport: (reply: string, nextSize: number) => void;
+  onImport: (reply: string) => void;
   onClose: () => void;
 }) {
   const [reply, setReply] = useState("");
-  const [nextSize, setNextSize] = useState(run.size);
   const [copyStatus, setCopyStatus] = useState("");
   const [pasteStatus, setPasteStatus] = useState("");
   const [showPrompt, setShowPrompt] = useState<"full" | "short" | null>(null);
@@ -235,28 +187,7 @@ export function ManualBatch({
         )}
       </section>
 
-      {hasMore && (
-        <details>
-          <summary>Change remaining batch size</summary>
-          <Field>
-            <FieldLabel htmlFor="manual-next-size">Words per remaining batch</FieldLabel>
-            <Input
-              id="manual-next-size"
-              type="number"
-              min={1}
-              max={100}
-              value={nextSize || ""}
-              disabled={busy}
-              onChange={(event) => setNextSize(Number(event.target.value))}
-            />
-            <p className="help">Does not change this prompt.</p>
-          </Field>
-        </details>
-      )}
-      <Button
-        disabled={busy || !reply.trim() || (hasMore && !validSize(nextSize))}
-        onClick={() => onImport(reply, hasMore ? nextSize : run.size)}
-      >
+      <Button disabled={busy || !reply.trim()} onClick={() => onImport(reply)}>
         {hasMore ? "Validate and continue" : "Validate and finish"}
       </Button>
       {confirmEnd ? (

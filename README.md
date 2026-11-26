@@ -54,7 +54,8 @@ In that mode, Ctrl+Enter or Cmd+Enter also starts generation.
 
 ### Manual copy & paste
 
-1. Enter your words and choose the batch size (default 25).
+1. Enter your words. To change the default of 25, open **Settings → Words per manual
+   batch**. The saved size applies to new runs, not ones already in progress.
 2. Choose **Start manual generation**. Copy the full prompt into Gemini Web or another
    chat. Return to Gloss and choose **Paste reply** or paste into the JSON field yourself.
    Gloss accepts JSON with or without the code fence.
@@ -62,9 +63,8 @@ In that mode, Ctrl+Enter or Cmd+Enter also starts generation.
    a missing, duplicated, or wrong-batch row, keep the batch open and ask the chat for
    a corrected reply. Words the model flags as unclear appear as drafts for review.
 4. For later batches in the same chat, copy the shorter continuation prompt. Copy the
-   full prompt any time you switch chats or the model loses the format. You can resize
-   future batches without changing the current prompt. Closing or refreshing Gloss
-   preserves the queue and saved drafts.
+   full prompt any time you switch chats or the model loses the format. Closing or
+   refreshing Gloss preserves the queue and saved drafts.
 5. Review the imported cards. **Prepare audio** is optional and works with local Woof
    even without text credentials. **Sync to Anki** is a separate step.
 

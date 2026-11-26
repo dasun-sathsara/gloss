@@ -21,7 +21,7 @@ from gloss.anki.gateway import AnkiGateway
 from gloss.anki.templates import available_fonts
 from gloss.config import VOICES, Configuration, Preferences
 from gloss.core.events import Job, Jobs
-from gloss.core.manual import DEFAULT_BATCH_SIZE, ManualRun
+from gloss.core.manual import ManualRun
 from gloss.core.models import CLIP_KINDS, Card, ClipKind, Entry
 from gloss.core.orchestrator import Orchestrator, clip_key
 from gloss.core.parsing import parse_entries
@@ -38,13 +38,8 @@ class Paste(BaseModel):
     confirm_over_cap: bool = False
 
 
-class ManualStart(Paste):
-    size: int = Field(default=DEFAULT_BATCH_SIZE, ge=1, le=100)
-
-
 class ManualImport(BaseModel):
     reply: str = Field(min_length=1, max_length=750_000)
-    next_size: int = Field(ge=1, le=100)
 
 
 class Selection(BaseModel):
@@ -382,7 +377,6 @@ def create_app(
             "cards": cards,
             "card_count": total,
             "manual": manual.status() if manual else None,
-            "manual_default_size": DEFAULT_BATCH_SIZE,
             "library_truncated": total > len(cards),
             "active_job": {"id": active.id, "kind": active.kind, "stage": active.stage}
             if active
@@ -452,7 +446,7 @@ def create_app(
         }
 
     @app.post("/api/manual")
-    async def start_manual(paste: ManualStart):
+    async def start_manual(paste: Paste):
         idle()
         if library.manual_run() is not None:
             raise HTTPException(409, "Finish or close the current manual run first.")
@@ -469,7 +463,7 @@ def create_app(
             entries=entries,
             deck=paste.deck,
             order=int(time.time() * 1000) * 1000,
-            size=paste.size,
+            size=configuration.preferences.manual_batch_size,
         )
         library.save_manual(run)
         return run.status()
@@ -481,7 +475,7 @@ def create_app(
         if run is None or not run.current:
             raise HTTPException(409, "There is no pending manual batch to import.")
         cards = run.import_cards(paste.reply)
-        run = run.advance(cards, paste.next_size)
+        run = run.advance(cards)
         library.save_manual(run, cards)
         return {"manual": run.status(), "cards": cards}
 

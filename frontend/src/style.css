@@ -1116,11 +1116,6 @@ textarea {
   overflow-wrap: anywhere;
 }
 
-.manual-options details > summary {
-  cursor: pointer;
-  margin-block-end: 0.5rem;
-}
-
 .manual-actions {
   display: flex;
   flex-wrap: wrap;

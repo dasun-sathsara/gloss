@@ -9,7 +9,6 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from gloss.core.models import Card, Entry, Generated
 
-DEFAULT_BATCH_SIZE = 25
 CARD_INSTRUCTIONS = (
     "Teach English to a Sinhala-speaking A2–B1 learner. Use the hint to choose the intended "
     "sense. Correct spelling only when the intended English word is clear. Give a lowercase "
@@ -178,12 +177,11 @@ class ManualRun(BaseModel):
             )
         return cards
 
-    def advance(self, cards: list[Card], size: int) -> Self:
+    def advance(self, cards: list[Card]) -> Self:
         return self.model_copy(
             update={
                 "offset": self.offset + len(self.current),
                 "number": self.number + 1,
-                "size": size,
                 "code": uuid4().hex[:10],
                 "card_ids": [*self.card_ids, *(card.id for card in cards)],
             },

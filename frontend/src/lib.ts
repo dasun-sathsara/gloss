@@ -26,6 +26,7 @@ export interface Card {
 }
 export interface Preferences {
   batch_size: number;
+  manual_batch_size: number;
   word_cap: number;
   text_model: string;
   tts_model: string;
@@ -107,7 +108,6 @@ export interface Bootstrap {
   library_truncated: boolean;
   active_job: Job | null;
   manual: ManualRun | null;
-  manual_default_size: number;
   provider_ready: boolean;
   text_provider: string;
   text_health: "off" | "warming" | "ready" | "down";

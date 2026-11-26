@@ -392,7 +392,7 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
         initial = (await http.get("/api/bootstrap")).json()
         assert not initial["provider_ready"]
         assert initial["manual"] is None
-        assert initial["manual_default_size"] == 25
+        assert initial["settings"]["manual_batch_size"] == 25
         response = await http.post(
             "/api/manual",
             json={
@@ -421,7 +421,6 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
             import_path,
             json={
                 "reply": json.dumps({"batch": first["code"], "items": rows[1:] + rows[1:2]}),
-                "next_size": 25,
             },
         )
         assert bad.status_code == 400
@@ -433,7 +432,6 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
                 "reply": json.dumps(
                     {"batch": first["code"], "items": [rows[0] | {"meaning": ""}, *rows[1:]]}
                 ),
-                "next_size": 25,
             },
         )
         assert bad_fields.status_code == 400
@@ -447,7 +445,6 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
                         "items": [rows[0] | {"source_word": "wrong"}, *rows[1:]],
                     }
                 ),
-                "next_size": 25,
             },
         )
         assert wrong_word.status_code == 400
@@ -457,7 +454,7 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
         fenced = (
             "```json\r\n" + json.dumps({"batch": first["code"], "items": rows[::-1]}) + "\r\n```"
         )
-        imported = await http.post(import_path, json={"reply": fenced, "next_size": 25})
+        imported = await http.post(import_path, json={"reply": fenced})
         assert imported.status_code == 200, imported.text
         data = imported.json()
         assert [card["hint"] for card in data["cards"][:2]] == ["noun", "verb"]
@@ -475,51 +472,59 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
         assert second["completed"] == 25
         assert second["current_count"] == 25
         assert second["code"] != first["code"]
-        repeated = await http.post(import_path, json={"reply": fenced, "next_size": 25})
+        repeated = await http.post(import_path, json={"reply": fenced})
         assert repeated.status_code == 400
         assert "another batch" in repeated.json()["detail"]
         assert app.state.library.count() == 25
         rows = [manual_item(i, word) for i, word in enumerate(words[25:], 1)]
         reply = json.dumps({"batch": second["code"], "items": rows})
-        imported = await http.post(import_path, json={"reply": reply, "next_size": 25})
+        imported = await http.post(import_path, json={"reply": reply})
         assert imported.status_code == 200, imported.text
         done = imported.json()["manual"]
         assert done["completed"] == 50
         assert done["current_count"] == 0
         assert app.state.library.count() == 50
-        assert (
-            await http.post(import_path, json={"reply": reply, "next_size": 25})
-        ).status_code == 409
+        assert (await http.post(import_path, json={"reply": reply})).status_code == 409
         assert (await http.delete(f"/api/manual/{done['code']}")).status_code == 200
         assert (await http.get("/api/bootstrap")).json()["manual"] is None
         assert app.state.library.count() == 50
 
 
-async def test_manual_resize_changes_remaining_batches_only(tmp_path):
+async def test_manual_batch_uses_saved_size_and_keeps_it_for_the_run(tmp_path):
     config = configured(tmp_path)
     app = create_app(config)
     async with app.router.lifespan_context(app), client(app) as http:
         http.headers["Origin"] = "http://127.0.0.1:8766"
-        start = await http.post(
-            "/api/manual",
-            json={
-                "text": "alpha; beta; gamma; delta; epsilon; zeta",
-                "deck": f"{config.preferences.deck_parent}::General",
-                "size": 2,
-            },
-        )
+
+        async def save_size(size):
+            preferences = config.preferences.model_dump() | {"manual_batch_size": size}
+            return await http.put("/api/settings", json=preferences)
+
+        paste = {
+            "text": "alpha; beta; gamma; delta; epsilon; zeta",
+            "deck": f"{config.preferences.deck_parent}::General",
+        }
+        assert (await save_size(101)).status_code == 422
+        assert (await save_size(2)).json()["manual_batch_size"] == 2
+        start = await http.post("/api/manual", json=paste)
+        assert start.status_code == 200, start.text
         run = start.json()
         assert run["current_count"] == 2
+        assert (await save_size(3)).json()["manual_batch_size"] == 3
+
         reply = {"batch": run["code"], "items": [manual_item(1, "alpha"), manual_item(2, "beta")]}
-        imported = await http.post(
-            "/api/manual/import", json={"reply": json.dumps(reply), "next_size": 3}
-        )
+        imported = await http.post("/api/manual/import", json={"reply": json.dumps(reply)})
         assert imported.status_code == 200, imported.text
         next_run = imported.json()["manual"]
         assert next_run["completed"] == 2
-        assert next_run["current_count"] == 3
-        assert "epsilon" in next_run["short_prompt"]
-        assert "zeta" not in next_run["short_prompt"]
+        assert next_run["current_count"] == 2
+        assert "delta" in next_run["short_prompt"]
+        assert "epsilon" not in next_run["short_prompt"]
+        assert (await http.delete(f"/api/manual/{next_run['code']}")).status_code == 200
+        next_start = await http.post("/api/manual", json=paste)
+        assert next_start.json()["current_count"] == 3
+
+    assert Configuration(tmp_path).preferences.manual_batch_size == 3
 
 
 async def test_local_woof_audio_does_not_require_text_credentials(tmp_path, card, monkeypatch):

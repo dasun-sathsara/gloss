@@ -29,11 +29,19 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
     "Manual copy & paste",
   );
   await page.getByLabel("Words", { exact: true }).fill("curious\nresilient\npatient");
-  await page.getByLabel("Words per prompt").fill("2");
-  await expect(page.getByText("3 words in 2 batches")).toBeVisible();
+  const settings = page.getByRole("button", { name: "Settings", exact: true });
+  await settings.click();
+  const size = page.getByLabel("Words per manual batch");
+  await expect(size).toHaveValue("25");
+  await size.fill("2");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).not.toBeVisible();
+  await expect(page.getByText("2 batches · up to 2 words each")).toBeVisible();
+  await expect(page.getByLabel("Words per manual batch")).toHaveCount(0);
   await expect(page.getByText("Customize prompts", { exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Start manual generation" }).click();
   await expect(page.getByRole("heading", { name: "Batch 1", exact: true })).toBeVisible();
+  await expect(page.getByText("Change remaining batch size")).toHaveCount(0);
   await page.getByRole("button", { name: "View prompt" }).click();
   await expect(page.getByLabel("Prompt text")).toHaveValue(/Teach English to a Sinhala-speaking/);
   const first = await run();
@@ -90,6 +98,11 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   const done = await run();
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("button", { name: "Start manual generation" })).toBeVisible();
+  await settings.click();
+  await expect(size).toHaveValue("2");
+  await size.fill("25");
+  await page.getByRole("button", { name: "Save settings" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).not.toBeVisible();
   // The suite shares one test server; leave the library clean for the automatic workflow test.
   for (const id of done.card_ids) {
     const response = await page.request.delete(`/api/cards/${id}`, {
@@ -129,7 +142,6 @@ test("restoring a manual run never selects unrelated library drafts", async ({ p
       headers,
       data: {
         reply: JSON.stringify({ batch: run.code, items: words.map((word, i) => row(i + 1, word)) }),
-        next_size: 25,
       },
     });
     expect(response.ok()).toBe(true);

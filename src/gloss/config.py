@@ -52,6 +52,7 @@ def config_dir() -> Path:
 
 class Preferences(BaseModel):
     batch_size: int = Field(default=5, ge=1, le=5)
+    manual_batch_size: int = Field(default=25, ge=1, le=100)
     word_cap: int = Field(default=50, ge=1, le=100)
     text_model: str = Field(default="gemini-3.8-flash", pattern=r"^[\w.-]{1,100}$")
     tts_model: str = Field(default="gemini-3.8-flash-tts", pattern=r"^[\w.-]{1,100}$")

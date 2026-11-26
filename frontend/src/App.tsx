@@ -265,7 +265,7 @@ export default function App() {
                   </div>
                   {g.generationMode === "manual" ? (
                     <ManualStart
-                      defaultSize={b.manual_default_size}
+                      size={b.settings.manual_batch_size}
                       wordCount={g.parsed?.count ?? 0}
                       busy={g.busy}
                       disabled={!g.parsed?.count || !g.deck || deckMissing}

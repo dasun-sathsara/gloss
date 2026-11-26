@@ -558,10 +558,10 @@ export function useGloss() {
       setNotice("");
     });
   };
-  const startManual = (size: number) =>
+  const startManual = () =>
     perform(async () => {
       await flush();
-      const run = await api<ManualRun>("/manual", "POST", { size, text, deck });
+      const run = await api<ManualRun>("/manual", "POST", { text, deck });
       const keep = new Set(
         cardsRef.current
           .filter((card) => batchIds.has(card.id) && !card.note_id && card.deck === deck)
@@ -575,12 +575,11 @@ export function useGloss() {
       setSearch("");
       setNotice("");
     });
-  const importManual = (reply: string, nextSize: number) =>
+  const importManual = (reply: string) =>
     perform(async () => {
       setManualError("");
       const result = await api<{ manual: ManualRun; cards: Card[] }>("/manual/import", "POST", {
         reply,
-        next_size: nextSize,
       }).catch((error: unknown) => {
         setManualError(error instanceof Error ? error.message : "The import failed. Try again.");
         return null;
