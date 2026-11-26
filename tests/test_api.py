@@ -472,7 +472,7 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
             },
         )
         assert wrong_word.status_code == 400
-        assert "expected the original word" in wrong_word.json()["detail"]
+        assert "must keep the original word" in wrong_word.json()["detail"]
         assert app.state.library.count() == 0
         assert (await http.get("/api/bootstrap")).json()["manual"] == first
         fenced = (

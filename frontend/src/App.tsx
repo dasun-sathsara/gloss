@@ -42,9 +42,9 @@ export default function App() {
   const audioReady = b.audio_ready;
   // Local audio is free, so a batch that costs words only should not quote dollars.
   const costNote = !audioReady
-    ? "Words generate without audio."
+    ? "Gloss will add the words without audio."
     : b.audio_provider === "woof"
-      ? "Local audio adds no speech cost."
+      ? "Woof records audio on your computer at no cost."
       : `Estimated cost with audio: $${(g.parsed?.estimate_usd ?? 0).toFixed(2)}.`;
   const parent = `${b.settings.deck_parent}::`;
   const names = g.anki.connected
@@ -62,6 +62,7 @@ export default function App() {
     label: value.startsWith(parent) ? value.slice(parent.length).replaceAll("::", " / ") : value,
     disabled: g.anki.connected && !names.includes(value),
   }));
+  const readyDecks = [...new Set(g.readySelection.map((card) => card.deck))];
   const hasCards = g.view === "library" ? g.cards.length > 0 : g.batchIds.size > 0;
   const recovery = g.recovery;
   const remaining = recovery
@@ -121,7 +122,9 @@ export default function App() {
         </div>
       </header>
       <main className="workspace">
-        {b.demo && <p className="demo-notice">Offline demo · Sample definitions and test tones</p>}
+        {b.demo && (
+          <p className="demo-notice">Offline demo with sample definitions and test tones</p>
+        )}
         {b.library_truncated && (
           <Alert>
             <AlertDescription>
@@ -207,8 +210,8 @@ export default function App() {
                       />
                     </Field>
                     <p className="help">
-                      Separate words with new lines, commas, or semicolons. Add a hint after a
-                      colon.
+                      Use one word or phrase per line, or separate them with commas or semicolons.
+                      Put a hint after a colon.
                     </p>
                     {g.generationMode === "api" &&
                       b.text_provider === "endpoint" &&
@@ -216,10 +219,10 @@ export default function App() {
                         <p className={`endpoint-status ${b.text_health}`} role="status">
                           <span className="endpoint-dot" aria-hidden="true" />
                           {b.text_health === "ready"
-                            ? "Text endpoint ready"
+                            ? "Text provider is ready"
                             : b.text_health === "warming"
-                              ? "Warming up the text endpoint"
-                              : b.text_health_detail || "Text endpoint unreachable"}
+                              ? "Connecting to the text provider"
+                              : b.text_health_detail || "Could not reach the text provider"}
                         </p>
                       )}
                     {g.parsed && (
@@ -272,7 +275,7 @@ export default function App() {
                             return (
                               <p className="help" key={entry.index}>
                                 {label}
-                                {entry.warning || "Repeated in this batch"}
+                                {entry.warning || "Duplicate entry"}
                               </p>
                             );
                           })}
@@ -330,7 +333,8 @@ export default function App() {
                   <span className="selection-count">{g.selected.size} selected</span>
                   {hiddenCount > 0 && (
                     <span>
-                      {hiddenCount} selected outside this filter. Bulk actions include them.{" "}
+                      This filter hides {hiddenCount} selected{" "}
+                      {hiddenCount === 1 ? "card" : "cards"}. Actions still include them.{" "}
                       <Button
                         size="sm"
                         variant="outline"
@@ -352,7 +356,7 @@ export default function App() {
                         !audioReady
                           ? audioSetupHint(b.audio_provider)
                           : g.readySelection.length && !g.missingCount
-                            ? "Audio is ready for the selected words."
+                            ? "The selected cards already have audio."
                             : undefined
                       }
                       className="batch-action"
@@ -371,11 +375,11 @@ export default function App() {
                       }
                       title={
                         selectedForRecovery
-                          ? "Use Retry remaining cards to finish the previous send."
+                          ? "Use Retry remaining cards to finish saving to Anki."
                           : !g.anki.connected
-                            ? "Open Anki with AnkiConnect enabled to sync."
+                            ? "Open Anki with AnkiConnect enabled."
                             : !g.anki.ready
-                              ? "Open Anki in the header and choose Set up Anki first."
+                              ? "Choose Set up Anki in the Anki dialog."
                               : g.view === "review" && deckMissing
                                 ? "Choose an existing Anki subdeck before syncing."
                                 : undefined
@@ -397,14 +401,14 @@ export default function App() {
                 </div>
                 {g.readySelection.length > 0 && (
                   <p className="help">
-                    {g.readySelection.length} ready to send ·{" "}
-                    {[...new Set(g.readySelection.map((card) => card.deck))].join(", ")} · Audio
-                    optional
+                    {g.readySelection.length} {g.readySelection.length === 1 ? "card" : "cards"}{" "}
+                    ready for Anki. Audio is optional. {readyDecks.length === 1 ? "Deck" : "Decks"}:{" "}
+                    {readyDecks.join(", ")}.
                   </p>
                 )}
                 {!g.anki.connected && (
                   <p className="help">
-                    Open Anki with AnkiConnect to send your drafts.{" "}
+                    Open Anki with AnkiConnect to sync your cards.{" "}
                     <Button variant="ghost" size="sm" onClick={() => g.setSetupOpen(true)}>
                       Anki help
                     </Button>
@@ -416,20 +420,21 @@ export default function App() {
               <div className="notice message">
                 <div>
                   <p>
-                    {recovery.saved} saved in Anki profile {recovery.profile}. Still to send:
+                    Gloss saved {recovery.saved} {recovery.saved === 1 ? "card" : "cards"} in Anki
+                    under {JSON.stringify(recovery.profile)}. Cards left to save:
                   </p>
                   <ul>
                     {remaining.map((card) => (
                       <li key={card.id}>
-                        {card.word} · {recovery.decks[card.id]}
-                        {card.id === recovery.ids[0] && " · Send stopped here"}
-                        {!isReady(card) && " · Needs edits"}
+                        {card.word} in {recovery.decks[card.id]}.
+                        {card.id === recovery.ids[0] && " Gloss stopped here."}
+                        {!isReady(card) && " Needs edits."}
                       </li>
                     ))}
                   </ul>
                   {recoveryProfileChanged && (
                     <p className="help">
-                      Switch to {recovery.profile} in Anki, then refresh in Anki help.
+                      Switch to {recovery.profile} in Anki, then choose Refresh in the Anki dialog.
                     </p>
                   )}
                   {!recoveryProfileChanged && g.anki.ready && recoveryDeckChanged && (
@@ -470,7 +475,7 @@ export default function App() {
                     {g.progress?.total ? ` ${g.progress.completed}/${g.progress.total}` : ""}
                   </span>
                   {g.audioRunning && (
-                    <span className="job-hint">You can edit words while audio records.</span>
+                    <span className="job-hint">You can edit cards while Gloss records audio.</span>
                   )}
                 </span>
                 {g.job.kind !== "sync" && (
@@ -505,6 +510,7 @@ export default function App() {
                 editDisabled={g.editLocked}
                 jobActive={!!g.job}
                 audioReady={audioReady}
+                audioHelp={audioSetupHint(b.audio_provider)}
                 library={g.view === "library"}
                 playing={g.playing}
                 onSelect={(id) =>
@@ -612,8 +618,8 @@ export default function App() {
           </p>
         ) : (
           <p>
-            Profile: {g.anki.profile}. Setup creates {b.settings.deck_parent} and its starting
-            subdecks, and installs the {b.settings.note_type} note type.
+            Anki is using the {g.anki.profile} profile. Set up Anki to create the{}
+            {b.settings.deck_parent} deck, its subdecks, and the {b.settings.note_type} note type.
           </p>
         )}
         {g.anki.warnings?.map((warning) => (
@@ -671,9 +677,9 @@ export default function App() {
       >
         <p>
           {g.removeIds.length === 1
-            ? `“${removeLabel(g.cards, g.removeIds[0])}” will be deleted from Gloss, with its edits.`
-            : `${g.removeIds.length} words will be deleted from Gloss, with their edits.`}{" "}
-          Notes already in Anki stay in Anki.
+            ? `Gloss will delete "${removeLabel(g.cards, g.removeIds[0])}" and its edits.`
+            : `Gloss will delete ${g.removeIds.length} words and their edits.`}{" "}
+          This does not delete notes from Anki.
         </p>
         <div className="dialog-footer">
           <Button variant="outline" onClick={() => g.setRemoveIds([])}>
@@ -690,7 +696,7 @@ export default function App() {
       </Modal>
       <Modal title="Generate a larger batch?" open={g.confirmCap} onOpenChange={g.setConfirmCap}>
         <p>
-          {g.parsed?.count} words exceeds your cap of {b.settings.word_cap}. {costNote}
+          You entered {g.parsed?.count} words. Your word limit is {b.settings.word_cap}. {costNote}
         </p>
         <div className="dialog-footer">
           <Button variant="outline" onClick={() => g.setConfirmCap(false)}>
@@ -717,8 +723,8 @@ export default function App() {
                 .map((card) => card.deck),
             ),
           ].join(", ")}
-          . Wait for syncing to finish in profile {g.syncDialog?.profile}. Resolve any full upload
-          or download prompt in Anki before continuing.
+          . Wait for Anki to finish syncing the {g.syncDialog?.profile} profile before you save. If
+          Anki asks for a full upload or download, finish it there first.
         </p>
         {g.error && (
           <Alert variant="destructive" className="message">
@@ -732,7 +738,7 @@ export default function App() {
               checked={g.allowMissing}
               onCheckedChange={(checked) => g.setAllowMissing(checked === true)}
             />
-            <FieldLabel htmlFor="allow-missing">Sync with missing audio</FieldLabel>
+            <FieldLabel htmlFor="allow-missing">Save without all audio</FieldLabel>
           </Field>
         )}
         <div className="dialog-footer">
@@ -754,7 +760,7 @@ export default function App() {
               })
             }
           >
-            Sync finished · Save notes
+            Save notes to Anki
           </Button>
         </div>
       </Modal>
@@ -845,8 +851,8 @@ export default function App() {
               </div>
               {hasUnresolvedBatchCollision && (
                 <p className="text-destructive help">
-                  Two words in this batch still share one Anki note. Choose Keep both meanings or
-                  Skip for at least one of them.
+                  These words still point to the same Anki note. For at least one word, choose Keep
+                  both meanings or Skip this word.
                 </p>
               )}
               <div className="dialog-footer">

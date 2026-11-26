@@ -72,6 +72,7 @@ export function WordTable({
   editDisabled,
   jobActive,
   audioReady,
+  audioHelp,
   library,
   playing,
   onSelect,
@@ -92,6 +93,7 @@ export function WordTable({
   editDisabled: boolean;
   jobActive: boolean;
   audioReady: boolean;
+  audioHelp: string;
   library: boolean;
   playing: { id: string; kind: Clip } | null;
   onSelect: (id: string) => void;
@@ -202,7 +204,7 @@ export function WordTable({
                     </>
                   ) : (
                     <p className="invalid-word">
-                      {card.reason || "Complete the fields before syncing."}
+                      {card.reason || "Fill in and verify this card before syncing."}
                     </p>
                   )}
                 </TableCell>
@@ -249,6 +251,7 @@ export function WordTable({
                       disabled={editDisabled}
                       jobActive={jobActive}
                       audioReady={audioReady}
+                      audioHelp={audioHelp}
                       playingClip={playing?.id === card.id ? playing.kind : null}
                       onChange={(patch) => onChange(card.id, patch)}
                       onSave={() => onSave(card)}

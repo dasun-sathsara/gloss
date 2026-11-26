@@ -77,7 +77,7 @@ async def test_sync_rejects_unsafe_writes(library, card, preferences):
     with pytest.raises(ValueError, match="renamed or deleted"):
         await gateway.sync(Job("sync"), [card], preferences, True, "Learner")
     card.deck = "Gloss::General"
-    with pytest.raises(ValueError, match="audio is missing"):
+    with pytest.raises(ValueError, match="Record the missing audio"):
         await gateway.sync(Job("sync"), [card], preferences, False, "Learner")
     card.audio = {kind: "gloss_missing.mp3" for kind in CLIP_KINDS}
     with pytest.raises(ValueError, match="missing"):

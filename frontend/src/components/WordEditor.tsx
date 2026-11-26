@@ -24,6 +24,7 @@ export function WordEditor({
   disabled,
   jobActive,
   audioReady,
+  audioHelp,
   dirty,
   playingClip,
   onChange,
@@ -37,6 +38,7 @@ export function WordEditor({
   disabled: boolean;
   jobActive: boolean;
   audioReady: boolean;
+  audioHelp: string;
   dirty: boolean;
   playingClip: Clip | null;
   onChange: (patch: Partial<Card>) => void;
@@ -121,14 +123,12 @@ export function WordEditor({
             onCheckedChange={(checked) => onChange({ valid: checked === true })}
           />
           <FieldLabel htmlFor={`${card.id}-verified`}>
-            I verified this word and completed its fields.
+            I checked this card and filled in all its fields.
           </FieldLabel>
         </Field>
       )}
       {card.valid && !ready && (
-        <p className="help">
-          Complete all word, definition, and example fields before generating audio or syncing.
-        </p>
+        <p className="help">Fill in all fields before recording audio or syncing to Anki.</p>
       )}
       {(showDecision || card.decision !== "ask") && (
         <Choice
@@ -160,9 +160,9 @@ export function WordEditor({
                 disabled={hasClip ? false : disabled || !ready || jobActive || !audioReady}
                 title={
                   !hasClip && !audioReady
-                    ? "Audio needs Google Cloud credentials or a local Woof model."
+                    ? audioHelp
                     : !hasClip && !ready
-                      ? "Complete all word, definition, and example fields before generating audio."
+                      ? "Fill in and verify this card before recording audio."
                       : undefined
                 }
                 aria-pressed={hasClip ? isPlaying : undefined}

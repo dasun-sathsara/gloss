@@ -305,7 +305,7 @@ export function useGloss() {
           body: JSON.stringify({ text }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Could not parse this paste.");
+        if (!response.ok) throw new Error(data.detail || "Could not read the word list.");
         setParsed(data);
         if (parseErrorMessage.current) {
           const target = parseErrorMessage.current;
@@ -315,7 +315,7 @@ export function useGloss() {
       } catch (error) {
         if (!controller.signal.aborted) {
           setParsed(null);
-          const message = error instanceof Error ? error.message : "Could not parse.";
+          const message = error instanceof Error ? error.message : "Could not read the word list.";
           parseErrorMessage.current = message;
           setError(message);
         }
@@ -331,7 +331,7 @@ export function useGloss() {
     if (!job) return;
     let ended = false;
     const lostWarning =
-      "Gloss lost its progress connection. It will keep trying; saved work is safe.";
+      "Gloss lost the connection to this run. It will reconnect. Your saved work is safe.";
     let lostConnection = false;
     const clearLostWarning = () => {
       if (!lostConnection) return;
@@ -424,7 +424,7 @@ export function useGloss() {
                 return local && dirtyRef.current.has(card.id) ? mergeIncoming(local, card) : card;
               });
           });
-          setError("The progress connection ended. Saved work has been reloaded.");
+          setError("Gloss lost the connection to this run and reloaded your saved work.");
         }
       } catch {
         // The server may be briefly unreachable while the run keeps going. Keep the
@@ -454,7 +454,7 @@ export function useGloss() {
         setJob(next);
       })
       .catch((error) =>
-        setError(error instanceof Error ? error.message : "Audio could not start. Try again."),
+        setError(error instanceof Error ? error.message : "Could not start recording. Try again."),
       )
       .finally(() => setPending(false));
   }, [job, pending, audioQueue, bootstrap?.audio_ready]);
@@ -478,7 +478,7 @@ export function useGloss() {
     try {
       await operation();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "The action failed. Try again.");
+      setError(error instanceof Error ? error.message : "Could not finish. Try again.");
     } finally {
       setPending(false);
     }
@@ -814,10 +814,7 @@ export function useGloss() {
     void perform(async () => {
       if (!bootstrap?.audio_ready)
         throw new Error(audioSetupHint(bootstrap?.audio_provider ?? "woof"));
-      if (!isReady(card))
-        throw new Error(
-          "Complete all word, definition, and example fields before generating audio.",
-        );
+      if (!isReady(card)) throw new Error("Fill in and verify this card before recording audio.");
       const saved = dirty.has(card.id) ? await saveEdit(card) : card;
       const cached = saved.audio[kind];
       if (cached) {

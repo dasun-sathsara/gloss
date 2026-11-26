@@ -113,7 +113,7 @@ class ManualRun(BaseModel):
         except (ValueError, RecursionError):
             raise ValueError("Paste one complete JSON code block or raw JSON.") from None
         if not isinstance(data, dict) or "batch" not in data:
-            raise ValueError("The response is missing its batch code.")
+            raise ValueError("The reply is missing its batch code. Copy the full JSON reply.")
         if data["batch"] != self.code:
             raise ValueError("This reply is for another batch. Use the current batch prompt.")
         try:
@@ -160,9 +160,9 @@ class ManualRun(BaseModel):
         for item in sorted(parsed.items, key=lambda row: row.index):
             entry = current[item.index - 1]
             if item.source_word != entry.word:
-                raise ValueError(f"Row {item.index}: expected the original word “{entry.word}”.")
+                raise ValueError(f'Row {item.index} must keep the original word "{entry.word}".')
             if not item.valid and not item.reason.strip():
-                raise ValueError(f"Row {item.index}: give a reason when marking a word for review.")
+                raise ValueError(f"Row {item.index} needs a reason for review.")
             contents = item.model_dump(exclude={"index", "source_word"})
             if not item.valid:
                 contents.update(

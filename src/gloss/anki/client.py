@@ -31,6 +31,8 @@ class AnkiClient:
             # Anki errors can include private note content. Only display known categories.
             if "sync" in str(error).lower():
                 raise ProviderError("Finish or resolve the sync in Anki, then try again.")
+            if action in {"addNote", "updateNoteFields"}:
+                raise ProviderError("Anki could not save this note. Check Anki and try again.")
             raise ProviderError(f"AnkiConnect could not complete {action}. Check Anki.")
         return data["result"]
 

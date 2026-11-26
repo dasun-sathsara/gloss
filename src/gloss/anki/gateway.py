@@ -270,13 +270,13 @@ class AnkiGateway:
             if card.decision == "skip":
                 continue
             if not card.ready():
-                raise ValueError("Finish or remove invalid cards before syncing.")
+                raise ValueError("Fill in and verify these cards, or remove them before syncing.")
             if card.deck not in decks or not card.deck.startswith(target_prefix):
                 raise ValueError(
                     "A selected deck was renamed or deleted. Choose a current subdeck."
                 )
             if not allow_missing and any(kind not in card.audio for kind in CLIP_KINDS):
-                raise ValueError("Some audio is missing. Retry it or explicitly sync without it.")
+                raise ValueError("Record the missing audio or choose Save without all audio.")
         conflicts = await self.conflicts(cards, preferences)
         by_id = {card.id: card for card in cards}
         unresolved = [item for item in conflicts if by_id.get(item["id"], Card()).decision == "ask"]
@@ -329,7 +329,7 @@ class AnkiGateway:
                 if missing_kinds:
                     if not allow_missing:
                         raise ValueError(
-                            "Some audio is missing. Retry it or explicitly sync without it."
+                            "Record the missing audio or choose Save without all audio."
                         )
                     audio_card = card.model_copy(
                         update={
@@ -412,5 +412,5 @@ class AnkiGateway:
             ) from exc
         job.emit(
             "sync_started",
-            {"message": "Notes are saved in Anki. Finish its sync to send them to your phone."},
+            {"message": "Notes are saved in Anki. Sync in Anki to send them to your phone."},
         )

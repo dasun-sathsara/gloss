@@ -129,8 +129,8 @@ export interface Bootstrap {
 }
 export function audioSetupHint(provider: Bootstrap["audio_provider"]) {
   return provider === "google"
-    ? "Configure a Google Cloud project in the config .env and restart Gloss."
-    : "Set WOOF_MODEL_DIR in the config .env and restart Gloss.";
+    ? "Set GOOGLE_CLOUD_PROJECT in your .env file, then restart Gloss."
+    : "Set WOOF_MODEL_DIR in your .env file, then restart Gloss.";
 }
 
 export interface Conflict {
@@ -214,16 +214,19 @@ export function describeSummary(summary: Summary): string {
   const parts: string[] = [];
   if (summary.words !== undefined) {
     parts.push(`Added ${plural(summary.words, "word")}.`);
-    if (summary.needs_review) parts.push(`${summary.needs_review} to review.`);
+    if (summary.needs_review)
+      parts.push(
+        `${plural(summary.needs_review, "card")} ${summary.needs_review === 1 ? "needs" : "need"} review.`,
+      );
   }
   const audio = summary.audio;
   if (audio?.clips) {
     if (audio.failed)
       parts.push(
-        `Audio: ${audio.ready} of ${audio.clips} clips ready. Choose Prepare audio to retry ${audio.failed === 1 ? "the one" : `the ${audio.failed}`} that failed.`,
+        `${audio.ready} of ${audio.clips} audio clips are ready. Choose Prepare audio to retry ${plural(audio.failed, "failed clip")}.`,
       );
     else if (audio.ready === audio.clips) parts.push("Audio is ready.");
-    else parts.push(`Audio: ${audio.ready} of ${audio.clips} clips ready.`);
+    else parts.push(`${audio.ready} of ${audio.clips} audio clips are ready.`);
   }
   return parts.join(" ");
 }

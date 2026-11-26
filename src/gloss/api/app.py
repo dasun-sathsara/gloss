@@ -135,7 +135,7 @@ def create_app(
                 return
             except httpx.HTTPError:
                 if warm_task is current:
-                    text_health.update(state="down", detail="The text endpoint did not answer.")
+                    text_health.update(state="down", detail="The text provider did not respond.")
                 return
             if 300 <= response.status_code < 400 and not attempt:
                 # The proxy redirects while the container wakes; try once more.
@@ -471,7 +471,7 @@ def create_app(
         if not entries:
             raise ValueError("Paste at least one word.")
         if not paste.deck.startswith(configuration.preferences.deck_parent + "::"):
-            raise ValueError("Choose a subdeck under the configured parent.")
+            raise ValueError("Choose a subdeck inside your parent deck.")
         run = ManualRun(
             entries=entries,
             deck=paste.deck,
@@ -486,7 +486,7 @@ def create_app(
         idle()
         run = library.manual_run()
         if run is None or not run.current:
-            raise HTTPException(409, "There is no pending manual batch to import.")
+            raise HTTPException(409, "Start a manual batch before importing a reply.")
         cards = run.import_cards(paste.reply)
         run = run.advance(cards)
         library.save_manual(run, cards)
@@ -508,7 +508,9 @@ def create_app(
         if not entries:
             raise ValueError("Paste at least one word.")
         if len(entries) > configuration.preferences.word_cap and not paste.confirm_over_cap:
-            raise ValueError("This paste exceeds your word cap. Confirm the estimate to continue.")
+            raise ValueError(
+                "This list exceeds your word limit. Confirm the larger batch to continue."
+            )
 
         async def run(job: Job, model, synth, preferences):
             await write_cards(job, entries, paste.deck, model, synth, preferences)
@@ -563,13 +565,15 @@ def create_app(
         idle()
         if not audio_ready():
             raise ValueError(
-                "Set WOOF_MODEL_DIR in the config .env and restart Gloss."
+                "Set WOOF_MODEL_DIR in your .env file, then restart Gloss."
                 if configuration.preferences.audio_provider == "woof"
-                else "Configure a Google Cloud project in the config .env and restart Gloss."
+                else "Set GOOGLE_CLOUD_PROJECT in your .env file, then restart Gloss."
             )
         cards = valid_cards(selected(selection.ids))
         if any(not card.ready() for card in cards):
-            raise ValueError("Finish or remove invalid cards before generating audio.")
+            raise ValueError(
+                "Fill in and verify these cards, or remove them before recording audio."
+            )
 
         async def run(job: Job, _model, synth, preferences):
             stats = await orchestrator.audio(job, cards, synth, preferences, selection.kind)
@@ -582,7 +586,7 @@ def create_app(
     async def batch_deck(selection: BatchDeck):
         idle()
         if not selection.deck.startswith(configuration.preferences.deck_parent + "::"):
-            raise ValueError("Choose a subdeck under the configured parent.")
+            raise ValueError("Choose a subdeck inside your parent deck.")
         cards = selected(selection.ids)
         for card in cards:
             card.deck = selection.deck
@@ -607,7 +611,7 @@ def create_app(
     async def cancel(job_id: str):
         job = jobs.get(job_id)
         if job.kind == "sync":
-            raise HTTPException(409, "Anki writes are finishing. Wait to avoid a partial write.")
+            raise HTTPException(409, "Wait for Gloss to finish saving the notes to Anki.")
         if job.task and not job.done:
             job.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

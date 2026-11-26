@@ -23,7 +23,7 @@ const numericSpecs: Record<
   manual_batch_size: { label: "Words per manual batch", min: 1, max: 100, integer: true },
   word_cap: { label: "Word cap", min: 1, max: 100, integer: true },
   tts_rpm: { label: "Speech requests per minute", min: 1, max: 120, integer: true },
-  call_budget: { label: "Audio clip ceiling per run", min: 4, max: 1000, integer: true },
+  call_budget: { label: "Max audio clips per run", min: 4, max: 1000, integer: true },
   estimated_usd_per_word: { label: "Estimated USD per word", min: 0, max: 1, integer: false },
 };
 
@@ -89,7 +89,7 @@ export function Settings({
       await onAddDeck(name.trim());
       setName("");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not add deck.");
+      setError(error instanceof Error ? error.message : "Could not add the deck.");
     } finally {
       setSaving(false);
     }
@@ -223,7 +223,7 @@ export function Settings({
           onCheckedChange={(checked) => change("auto_audio", checked === true)}
         />
         <FieldLabel htmlFor="settings-auto_audio">
-          Record audio automatically after writing words and saving edits
+          Record audio after generating words or saving edits
         </FieldLabel>
       </Field>
       {!audioReady && (
@@ -238,7 +238,9 @@ export function Settings({
           {input("deck_default", "Default subdeck")}
           {input("note_type", "Note type")}
           <Field className="gap-1.5">
-            <FieldLabel htmlFor="settings-subjects">Starting subdecks (comma separated)</FieldLabel>
+            <FieldLabel htmlFor="settings-subjects">
+              Starting subdecks, separated by commas
+            </FieldLabel>
             <Input
               id="settings-subjects"
               disabled={locked}
@@ -247,7 +249,9 @@ export function Settings({
             />
           </Field>
         </div>
-        <p className="help">Run Anki setup after changing the parent deck or note type.</p>
+        <p className="help">
+          After you change the parent deck or note type, open Anki in Gloss and choose Set up Anki.
+        </p>
         <div className="add-deck">
           <Field className="gap-1.5">
             <FieldLabel htmlFor="new-deck">New subdeck</FieldLabel>
@@ -316,7 +320,7 @@ export function Settings({
                 onChange={(value) => change("tts_concurrency", Number(value))}
               />
             )}
-            {input("call_budget", "Audio clip ceiling per run", { min: 4, max: 1000 })}
+            {input("call_budget", "Max audio clips per run", { min: 4, max: 1000 })}
             {googleAudio &&
               input("estimated_usd_per_word", "Estimated USD per word", {
                 min: 0,
@@ -325,8 +329,8 @@ export function Settings({
               })}
           </div>
           <p className="help">
-            Changing the audio engine, voice, or Google speech model clears mismatched clips from
-            cards. The original clips stay in the cache.
+            Changing the engine, voice, or Google speech model removes mismatched clips from your
+            cards. Gloss keeps the old audio files.
           </p>
           <p className="config-location">
             Configuration directory: <code>{configDir}</code>

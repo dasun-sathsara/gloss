@@ -65,7 +65,9 @@ export function ManualBatch({
     try {
       localStorage.setItem("gloss-manual-reply", JSON.stringify({ code: run.code, ...next }));
     } catch {
-      setPasteStatus("Browser storage unavailable. Keep this tab open until import.");
+      setPasteStatus(
+        "Gloss can't save this reply in your browser. Keep this tab open until you import it.",
+      );
     }
   };
   const setReply = (text: string) => saveDraft({ text });
@@ -111,7 +113,7 @@ export function ManualBatch({
     } catch {
       setPromptFallback(true);
       setShowPrompt(kind);
-      setCopyStatus("Clipboard unavailable. Copy the prompt below.");
+      setCopyStatus("Gloss couldn't copy the prompt. Copy it from the box below.");
     }
   };
 
@@ -119,17 +121,17 @@ export function ManualBatch({
     try {
       const value = await navigator.clipboard.readText();
       if (!value.trim()) {
-        setPasteStatus("Clipboard is empty. Copy the JSON reply first.");
+        setPasteStatus("Copy the JSON reply from Gemini first. Your clipboard is empty.");
         return;
       }
       if (value.length > 750000) {
-        setPasteStatus("That reply is too large. Copy only the JSON reply.");
+        setPasteStatus("The reply is too long. Copy just the JSON and try again.");
         return;
       }
       setPasteStatus("Reply pasted.");
       setReply(value);
     } catch {
-      setPasteStatus("Paste directly into the box below.");
+      setPasteStatus("Paste the reply into the box below.");
     }
     replyField.current?.focus();
   };
@@ -140,7 +142,7 @@ export function ManualBatch({
         <h2 role="status">
           {run.total} {run.total === 1 ? "word" : "words"} imported.
         </h2>
-        <p className="help">Review your drafts before preparing audio or syncing to Anki.</p>
+        <p className="help">Check your drafts before you record audio or sync to Anki.</p>
         <Button disabled={busy} onClick={onClose}>
           Done
         </Button>
@@ -160,10 +162,11 @@ export function ManualBatch({
             : reply.trim()
               ? "Reply ready to validate"
               : draft.copied
-                ? "Waiting for Gemini reply"
-                : "Copy the prompt to start"}
+                ? "Waiting for a Gemini reply"
+                : "Copy the prompt to start this batch"}
           <br />
-          {run.completed} of {run.total} words imported · {run.current_count} in this batch
+          Gloss imported {run.completed} of {run.total} words. This batch has {run.current_count}{" "}
+          {run.current_count === 1 ? "word" : "words"}.
         </p>
       </div>
 
@@ -171,8 +174,8 @@ export function ManualBatch({
         <h3>1. Copy the prompt</h3>
         <p className="help">
           {first
-            ? "Paste it into a new Gemini chat."
-            : "Use the short prompt in the same Gemini chat."}
+            ? "Paste the prompt into a new Gemini chat."
+            : "Paste the continuation prompt into the same Gemini chat."}
         </p>
         <div className="manual-actions">
           <Button ref={copyButton} disabled={busy} onClick={() => void copy(defaultPrompt)}>
@@ -195,7 +198,7 @@ export function ManualBatch({
             {showPrompt ? "Hide prompt" : "View prompt"}
           </Button>
         </div>
-        {!first && <p className="help">Starting a new chat? Use the full prompt.</p>}
+        {!first && <p className="help">Use the full prompt for a new chat.</p>}
         {copyStatus && (
           <p className="help" role="status">
             {copyStatus}
@@ -234,7 +237,7 @@ export function ManualBatch({
         <Textarea
           ref={replyField}
           aria-label="JSON reply"
-          placeholder="Paste the JSON reply here"
+          placeholder="Paste the JSON reply"
           rows={4}
           maxLength={750000}
           disabled={busy}
@@ -266,14 +269,14 @@ export function ManualBatch({
       {confirmEnd ? (
         <>
           <p className="help">
-            End this run and discard unimported words? Saved drafts stay in Gloss.
+            End this run and discard the words you haven't imported? Gloss keeps your saved drafts.
           </p>
           <div className="manual-actions">
             <Button variant="destructive" disabled={busy} onClick={onClose}>
               End run
             </Button>
             <Button variant="ghost" onClick={() => setConfirmEnd(false)}>
-              Keep going
+              Keep run open
             </Button>
           </div>
         </>

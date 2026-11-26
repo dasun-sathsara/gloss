@@ -59,7 +59,9 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
     });
   });
   await page.getByRole("button", { name: "Copy full prompt" }).click();
-  await expect(page.getByText("Clipboard unavailable. Copy the prompt below.")).toBeVisible();
+  await expect(
+    page.getByText("Gloss couldn't copy the prompt. Copy it from the box below."),
+  ).toBeVisible();
   await expect(page.getByLabel("Prompt text")).toBeFocused();
   await reply.fill(first.full_prompt);
   await page.getByRole("button", { name: "Validate and continue" }).click();
@@ -74,7 +76,7 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
     });
   });
   await page.getByRole("button", { name: "Paste reply" }).click();
-  await expect(page.getByText("Paste directly into the box below.")).toBeVisible();
+  await expect(page.getByText("Paste the reply into the box below.")).toBeVisible();
   await expect(page.getByLabel("JSON reply")).toBeFocused();
   await page
     .getByLabel("JSON reply")
@@ -127,7 +129,7 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   await page.getByLabel("JSON reply").fill("unfinished reply");
   await page.reload();
   await expect(page.getByLabel("JSON reply")).toHaveValue("unfinished reply");
-  await expect(page.getByText("2 of 3 words imported")).toBeVisible();
+  await expect(page.getByText("Gloss imported 2 of 3 words.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy continuation prompt" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy full prompt" })).toBeVisible();
   await page.getByRole("button", { name: "View prompt" }).click();
@@ -261,7 +263,7 @@ test("exact repeats preserve case, distinct hints and order on mobile", async ({
     "bank: finance; bank: river; Bank: finance; bank: finance; café; cafe; bank account",
   );
   await expect(page.getByText("7 words", { exact: true })).toBeVisible();
-  await expect(page.getByText("bank: Repeated in this batch", { exact: true })).toBeVisible();
+  await expect(page.getByText("bank: Duplicate entry", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove duplicates" }).click();
   await expect(words).toHaveValue(
     "bank: finance\nbank: river\nBank: finance\ncafé\ncafe\nbank account",

@@ -97,7 +97,7 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   // Audio records in the same run. No second click is needed.
   await expect(
-    page.getByText("Added 3 words. 1 to review. Audio is ready.", { exact: true }),
+    page.getByText("Added 3 words. 1 card needs review. Audio is ready.", { exact: true }),
   ).toBeVisible({ timeout: 20000 });
   await expect(page.locator(".word-row").getByText("4/4", { exact: true })).toHaveCount(2);
   await expect(page.getByRole("textbox", { name: "Words", exact: true })).toHaveValue("");
@@ -180,7 +180,7 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await expect(page.locator(".word-row").getByText("4/4", { exact: true })).toHaveCount(2);
   await invalid.getByRole("button", { name: "Edit", exact: true }).click();
   const verifyBox = page.getByRole("checkbox", {
-    name: "I verified this word and completed its fields.",
+    name: "I checked this card and filled in all its fields.",
     exact: true,
   });
   await verifyBox.check();
@@ -203,7 +203,7 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     page.getByText("Wanting to find out more about something.", { exact: true }),
   ).toBeVisible();
   await page.getByRole("textbox", { name: "Search words" }).fill("curious");
-  await expect(page.getByText(/1 selected outside this filter/)).toBeVisible();
+  await expect(page.getByText(/This filter hides 1 selected card/)).toBeVisible();
   await page.getByRole("button", { name: "Select visible only" }).click();
   await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
   await page.getByRole("textbox", { name: "Search words" }).clear();
@@ -251,19 +251,19 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await page.getByRole("button", { name: "Sync to Anki", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Finish syncing in Anki" })).toBeVisible();
   expect(pulledIds).toHaveLength(2);
-  await page.getByRole("button", { name: "Sync finished · Save notes", exact: true }).click();
+  await page.getByRole("button", { name: "Save notes to Anki", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Sync to Anki", exact: true })).toBeDisabled();
   expect(syncPayload?.ticket).toBe("test-ticket");
   expect(syncPayload?.ids).toEqual(pulledIds);
   const failedId = pulledIds[1];
-  await expect(page.getByText(/1 saved in Anki profile Test/)).toBeVisible();
+  await expect(page.getByText(/Gloss saved 1 card in Anki under "Test"/)).toBeVisible();
   await page.getByRole("button", { name: "Retry remaining cards" }).click();
   await expect(page.getByRole("dialog", { name: "Finish syncing in Anki" })).toBeVisible();
   expect(retryProfile).toBe("Test");
   expect(pulledIds).toEqual([failedId]);
   await expect(page.getByText(/Send 1 card.*Gloss::Science/)).toBeVisible();
-  await page.getByRole("button", { name: "Sync finished · Save notes", exact: true }).click();
+  await page.getByRole("button", { name: "Save notes to Anki", exact: true }).click();
   await expect(page.getByRole("button", { name: "Retry remaining cards" })).toHaveCount(0);
   expect(syncPayload?.ids).toEqual([failedId]);
   await page.route("**/api/generate", (route) =>
