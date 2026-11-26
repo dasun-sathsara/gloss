@@ -320,7 +320,22 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   expect(interfaceFonts[0]).toContain("Feixen");
   expect(new Set(interfaceFonts).size).toBe(1);
   const workspaceFrame = page.locator(".batch-layout");
-  await expect(page.locator(".app-shell")).toHaveCSS("border-top-width", "1px");
+  await expect(page.locator(".app-shell")).toHaveCSS("border-top-width", "0px");
+  const expectViewportFit = async () => {
+    const measurements = await workspaceFrame.evaluate((frame) => {
+      const shell = frame.closest(".app-shell")!.getBoundingClientRect();
+      const layout = frame.getBoundingClientRect();
+      return {
+        left: shell.left,
+        rightGap: innerWidth - shell.right,
+        bottomGap: innerHeight - layout.bottom,
+        composerBottomGap:
+          layout.bottom - frame.querySelector(".composer")!.getBoundingClientRect().bottom,
+      };
+    });
+    for (const gap of Object.values(measurements)) expect(Math.abs(gap)).toBeLessThan(1);
+  };
+  await expectViewportFit();
   await expect(workspaceFrame).toHaveCSS("border-top-width", "0px");
   const chromeGap = await page
     .locator(".app-shell")
@@ -333,8 +348,9 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await expect(workspaceFrame.locator(".composer")).toHaveCSS("border-right-width", "1px");
   await expect(review).toHaveCSS("border-top-width", "0px");
   await expect(review).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  for (const width of [1050, 900, 800]) {
+  for (const width of [1600, 1050, 900, 800]) {
     await page.setViewportSize({ width, height: 900 });
+    await expectViewportFit();
     await expectNoOverflow();
     await expectButtonInsets();
     const buttons = await review.locator(".bulk-actions button").evaluateAll((elements) =>
