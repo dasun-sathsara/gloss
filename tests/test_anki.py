@@ -136,7 +136,12 @@ async def test_keep_both_preserves_conflicting_meanings_and_retry_does_not_dupli
     gateway = AnkiGateway(client, library)
     job = Job("sync")
     await gateway.sync(job, [card, other], preferences, True, "Learner")
-    assert {conflict["kind"] for conflict in job.events[0]["data"]} == {"anki", "batch"}
+    assert {
+        conflict["kind"]
+        for event in job.events
+        if event["event"] == "conflicts"
+        for conflict in event["data"]
+    } == {"anki", "batch"}
     assert_no_writes(client)
     card.decision = other.decision = "keep_both"
     await gateway.sync(Job("sync"), [card, other], preferences, True, "Learner")
@@ -174,3 +179,44 @@ async def test_ankiconnect_multi_uses_v6_on_custom_port_and_surfaces_partial_fai
         )
         with pytest.raises(ProviderError, match="One Anki operation failed"):
             await client.multi([{"action": "storeMediaFile"}, {"action": "storeMediaFile"}])
+
+
+async def test_partial_sync_reports_remaining_ids_and_original_decks(library, card, preferences):
+    other = card.model_copy(update={"id": "other", "word": "second", "deck": "Gloss::Science"})
+    client = mock_client()
+    original_call = client.call.side_effect
+
+    async def fail_second(action, **kwargs):
+        if action == "addNote" and kwargs["note"]["deckName"] == other.deck:
+            raise ProviderError("Anki stopped.")
+        return await original_call(action, **kwargs)
+
+    client.call.side_effect = fail_second
+    job = Job("sync")
+    with pytest.raises(ProviderError, match="Anki stopped"):
+        await AnkiGateway(client, library).sync(job, [card, other], preferences, True, "Learner")
+    assert library.get(card.id).note_id == 12
+    remaining = next(event["data"] for event in job.events if event["event"] == "sync_remaining")
+    assert remaining == {
+        "saved": 1,
+        "ids": [other.id],
+        "decks": {other.id: other.deck},
+        "profile": "Learner",
+    }
+
+
+async def test_cloud_sync_failure_after_all_notes_saved(library, card, preferences):
+    client = mock_client()
+    original_call = client.call.side_effect
+
+    async def fail_cloud(action, **kwargs):
+        if action == "sync":
+            raise ProviderError("Offline")
+        return await original_call(action, **kwargs)
+
+    client.call.side_effect = fail_cloud
+    job = Job("sync")
+    with pytest.raises(ProviderError, match="notes are saved"):
+        await AnkiGateway(client, library).sync(job, [card], preferences, True, "Learner")
+    assert library.get(card.id).note_id == 12
+    assert all(event["event"] != "sync_remaining" for event in job.events)

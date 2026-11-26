@@ -47,6 +47,10 @@ class Selection(BaseModel):
     kind: ClipKind | None = None
 
 
+class ProfileSelection(Selection):
+    expected_profile: str | None = None
+
+
 class SyncSelection(Selection):
     allow_missing: bool = False
     ticket: str = ""
@@ -436,7 +440,7 @@ def create_app(
     @app.post("/api/parse")
     async def parse(paste: Paste):
         entries = parse_entries(paste.text)
-        count = sum(not entry.duplicate and not entry.warning for entry in entries)
+        count = sum(not entry.warning for entry in entries)
         return {
             "entries": entries,
             "count": count,
@@ -450,11 +454,7 @@ def create_app(
         idle()
         if library.manual_run() is not None:
             raise HTTPException(409, "Finish or close the current manual run first.")
-        entries = [
-            entry
-            for entry in parse_entries(paste.text)
-            if not entry.duplicate and not entry.warning
-        ]
+        entries = [entry for entry in parse_entries(paste.text) if not entry.warning]
         if not entries:
             raise ValueError("Paste at least one word.")
         if not paste.deck.startswith(configuration.preferences.deck_parent + "::"):
@@ -491,11 +491,7 @@ def create_app(
     @app.post("/api/generate")
     async def generate(paste: Paste):
         idle()
-        entries = [
-            entry
-            for entry in parse_entries(paste.text)
-            if not entry.duplicate and not entry.warning
-        ]
+        entries = [entry for entry in parse_entries(paste.text) if not entry.warning]
         if not entries:
             raise ValueError("Paste at least one word.")
         if len(entries) > configuration.preferences.word_cap and not paste.confirm_over_cap:
@@ -619,15 +615,21 @@ def create_app(
         return {"deck": await gateway.add_deck(configuration.preferences, name.name)}
 
     @app.post("/api/anki/conflicts")
-    async def conflicts(selection: Selection):
+    async def conflicts(selection: ProfileSelection):
         idle()
+        if selection.expected_profile:
+            profile = await gateway.client.call("getActiveProfile")
+            if selection.expected_profile != profile:
+                raise ValueError("Switch back to the original Anki profile before retrying.")
         return await gateway.conflicts(selected(selection.ids), configuration.preferences)
 
     @app.post("/api/anki/pull")
-    async def pull(selection: Selection):
+    async def pull(selection: ProfileSelection):
         idle()
         selected(selection.ids)
         profile = await gateway.client.call("getActiveProfile")
+        if selection.expected_profile and selection.expected_profile != profile:
+            raise ValueError("Switch back to the original Anki profile before retrying.")
         await gateway.client.call("sync")
         ticket = secrets.token_urlsafe(32)
         sync_ticket.clear()

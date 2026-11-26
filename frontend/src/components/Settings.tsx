@@ -27,7 +27,11 @@ const numericSpecs: Record<
   estimated_usd_per_word: { label: "Estimated USD per word", min: 0, max: 1, integer: false },
 };
 
+type Mode = "api" | "manual";
 export function Settings({
+  mode,
+  providerReady,
+  manualActive,
   settings,
   voices,
   audioProvider,
@@ -39,6 +43,9 @@ export function Settings({
   onAddDeck,
   busy,
 }: {
+  mode: Mode;
+  providerReady: boolean;
+  manualActive: boolean;
   settings: Preferences;
   voices: string[];
   audioProvider: "demo" | "woof" | "google" | "";
@@ -46,10 +53,11 @@ export function Settings({
   configDir: string;
   anki: AnkiStatus;
   audioReady: boolean;
-  onSave: (preferences: Preferences) => Promise<void>;
+  onSave: (preferences: Preferences, mode: Mode) => Promise<void>;
   onAddDeck: (name: string) => Promise<void>;
   busy: boolean;
 }) {
+  const [draftMode, setDraftMode] = useState(mode);
   const [draft, setDraft] = useState(settings);
   const [numericText, setNumericText] = useState<Record<NumericKey, string>>(() => ({
     manual_batch_size: String(settings.manual_batch_size),
@@ -135,14 +143,17 @@ export function Settings({
         setSaving(true);
         setError("");
         try {
-          await onSave({
-            ...draft,
-            ...parsedNumbers,
-            seed_decks: subjects
-              .split(",")
-              .map((value) => value.trim())
-              .filter(Boolean),
-          });
+          await onSave(
+            {
+              ...draft,
+              ...parsedNumbers,
+              seed_decks: subjects
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean),
+            },
+            draftMode,
+          );
         } catch (error) {
           setError(error instanceof Error ? error.message : "Could not save settings.");
         } finally {
@@ -150,6 +161,21 @@ export function Settings({
         }
       }}
     >
+      <Choice
+        id="generation-mode"
+        label="Generation mode"
+        value={draftMode}
+        options={[
+          { value: "manual", label: "Manual copy & paste" },
+          {
+            value: "api",
+            label: providerReady ? "Automatic generation" : "Automatic (not configured)",
+            disabled: !providerReady,
+          },
+        ]}
+        onChange={(value) => setDraftMode(value as "api" | "manual")}
+        disabled={locked || manualActive}
+      />
       <div className="settings-grid">
         {audioProvider === "woof" ? (
           <Field className="gap-1.5 settings-note">

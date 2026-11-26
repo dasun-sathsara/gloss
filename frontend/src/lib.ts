@@ -141,6 +141,14 @@ function detailFrom(value: unknown): string {
 export function normalizedText(value: string): string {
   return value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
 }
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
@@ -149,7 +157,7 @@ export async function api<T>(path: string, method = "GET", data?: unknown): Prom
   });
   if (!response.ok) {
     const value = await response.json().catch(() => ({}));
-    throw new Error(detailFrom(value));
+    throw new ApiError(detailFrom(value), response.status);
   }
   return response.json();
 }

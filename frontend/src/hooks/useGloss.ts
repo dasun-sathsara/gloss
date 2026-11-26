@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AnkiStatus,
   api,
+  ApiError,
   type Bootstrap,
   type Card,
   type Clip,
@@ -22,6 +23,21 @@ import {
   type Summary,
 } from "../lib";
 
+type SyncRecovery = {
+  saved: number;
+  ids: string[];
+  profile: string;
+  decks: Record<string, string>;
+};
+function clearReplyDraft(code?: string) {
+  try {
+    const key = "gloss-manual-reply";
+    if (JSON.parse(localStorage.getItem(key) || "null")?.code === code)
+      localStorage.removeItem(key);
+  } catch {
+    /* The server has already saved the import or discard. */
+  }
+}
 const emptyAnki: AnkiStatus = { connected: false, ready: false, decks: [] };
 export function useGloss() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
@@ -29,7 +45,13 @@ export function useGloss() {
   const [anki, setAnki] = useState<AnkiStatus>(emptyAnki);
   const [text, setText] = useState("");
   const [manual, setManual] = useState<ManualRun | null>(null);
-  const [manualError, setManualError] = useState("");
+  const [recovery, setRecovery] = useState<SyncRecovery | null>(null);
+  const retryProfile = useRef<string | undefined>(undefined);
+  const syncIds = useRef<string[]>([]);
+  const [nextCopyCode, setNextCopyCode] = useState("");
+  const [manualError, setManualError] = useState<{ message: string; canCorrect: boolean } | null>(
+    null,
+  );
   const [generationMode, setGenerationMode] = useState<"api" | "manual">("manual");
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [deck, setDeck] = useState("");
@@ -262,6 +284,7 @@ export function useGloss() {
   }, [dirty.size]);
 
   useEffect(() => {
+    setParsed(null);
     const controller = new AbortController();
     const timeout = setTimeout(async () => {
       if (!text.trim()) {
@@ -321,6 +344,13 @@ export function useGloss() {
       clearLostWarning();
       const card: Card = JSON.parse((event as MessageEvent).data);
       receiveCard(card);
+      if (job.kind === "sync") {
+        setRecovery((old) => {
+          if (!old?.ids.includes(card.id)) return old;
+          const ids = old.ids.filter((id) => id !== card.id);
+          return ids.length ? { ...old, ids, saved: old.saved + 1 } : null;
+        });
+      }
       if (job.kind === "text" && !removed.current.has(card.id)) {
         setBatchIds((old) => new Set([...old, card.id]));
         if (isReady(card)) setSelected((old) => new Set([...old, card.id]));
@@ -344,6 +374,16 @@ export function useGloss() {
     eventSource.addEventListener("conflicts", (event) => {
       clearLostWarning();
       setConflicts(JSON.parse((event as MessageEvent).data));
+    });
+    eventSource.addEventListener("sync_scope", (event) => {
+      const scope = JSON.parse((event as MessageEvent).data) as { ids: string[]; profile: string };
+      syncIds.current = scope.ids;
+      retryProfile.current = scope.profile;
+    });
+    eventSource.addEventListener("sync_remaining", (event) => {
+      const remaining = JSON.parse((event as MessageEvent).data) as SyncRecovery;
+      setRecovery(remaining);
+      setSelected(new Set(remaining.ids));
     });
     eventSource.addEventListener("sync_started", (event) => {
       clearLostWarning();
@@ -570,18 +610,25 @@ export function useGloss() {
       setBatchIds(keep);
       setSelected((old) => new Set([...old].filter((id) => keep.has(id))));
       setManual(run);
-      setManualError("");
+      setManualError(null);
       setText("");
       setSearch("");
       setNotice("");
     });
   const importManual = (reply: string) =>
     perform(async () => {
-      setManualError("");
+      setManualError(null);
       const result = await api<{ manual: ManualRun; cards: Card[] }>("/manual/import", "POST", {
         reply,
       }).catch((error: unknown) => {
-        setManualError(error instanceof Error ? error.message : "The import failed. Try again.");
+        const message = error instanceof Error ? error.message : "The import failed. Try again.";
+        setManualError({
+          message,
+          canCorrect:
+            error instanceof ApiError &&
+            error.status === 400 &&
+            !/pasted the prompt|another batch/i.test(message),
+        });
         return null;
       });
       if (!result) return;
@@ -590,6 +637,8 @@ export function useGloss() {
       setSelected(
         (old) => new Set([...old, ...result.cards.filter(isReady).map((card) => card.id)]),
       );
+      clearReplyDraft(manual?.code);
+      setNextCopyCode(result.manual.code);
       setManual(result.manual);
       setSearch("");
       setNotice(
@@ -603,6 +652,7 @@ export function useGloss() {
     perform(async () => {
       if (!manual) return;
       await api("/manual/" + manual.code, "DELETE");
+      clearReplyDraft(manual?.code);
       setManual(null);
     });
   const selection = useMemo(() => cards.filter((card) => selected.has(card.id)), [cards, selected]);
@@ -655,16 +705,24 @@ export function useGloss() {
       setDeck(target);
     });
   const pullAndOpenSync = async (ids: string[]) => {
-    const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", { ids });
+    const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", {
+      ids,
+      expected_profile: retryProfile.current,
+    });
     setSyncDialog({ ids, ...pull });
     setAllowMissing(false);
   };
-  const beginSync = () =>
+  const beginSync = (retryIds?: string[]) =>
     perform(async () => {
       await flush();
-      if (view === "review") await assignBatchDeck(deck);
-      const ids = readySelection.map((card) => card.id);
-      const found = await api<Conflict[]>("/anki/conflicts", "POST", { ids });
+      const ids = retryIds ?? readySelection.map((card) => card.id);
+      retryProfile.current = retryIds ? recovery?.profile : undefined;
+      syncIds.current = ids;
+      if (retryIds) setSelected(new Set(ids));
+      const found = await api<Conflict[]>("/anki/conflicts", "POST", {
+        ids,
+        expected_profile: retryProfile.current,
+      });
       const byId = new Map(cardsRef.current.map((card) => [card.id, card]));
       const hasAsk = found.some((conflict) => byId.get(conflict.id)?.decision === "ask");
       const collisionGroups = new Map<string, number>();
@@ -691,14 +749,15 @@ export function useGloss() {
     perform(async () => {
       await flush();
       const ids = cardsRef.current
-        .filter((card) => selected.has(card.id) && isReady(card) && card.decision !== "skip")
+        .filter(
+          (card) => syncIds.current.includes(card.id) && isReady(card) && card.decision !== "skip",
+        )
         .map((card) => card.id);
       if (!ids.length) {
         setConflicts([]);
         setNotice("Skipped the conflicting words.");
         return;
       }
-      if (view === "review") await assignBatchDeck(deck);
       await pullAndOpenSync(ids);
       setConflicts([]);
     });
@@ -840,6 +899,7 @@ export function useGloss() {
     conflicts,
     setConflicts,
     resolveConflicts,
+    syncIds: syncIds.current,
     refreshAnki,
     perform,
     saveCard,
@@ -850,10 +910,12 @@ export function useGloss() {
     chooseGenerationMode,
     manual,
     manualError,
+    nextCopyCode,
     startManual,
     importManual,
     closeManual,
     selection,
+    recovery,
     readySelection,
     visibleCards,
     audio,

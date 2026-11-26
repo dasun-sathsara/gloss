@@ -23,7 +23,7 @@ function AnkiStatus({ card, dirty }: { card: Card; dirty: boolean }) {
       </Badge>
     );
   }
-  return <span className="draft-label">Draft</span>;
+  return <span className="draft-label">{isReady(card) ? "Local draft" : "Needs edits"}</span>;
 }
 
 const clipNames: Record<Clip, string> = {

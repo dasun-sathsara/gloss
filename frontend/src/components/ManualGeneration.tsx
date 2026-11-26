@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ManualRun } from "../lib";
 import { Alert, AlertDescription } from "./ui/alert";
 import { Button } from "./ui/button";
@@ -36,32 +36,80 @@ export function ManualBatch({
   run,
   busy,
   error,
+  focusCopy,
   onImport,
   onClose,
 }: {
   run: ManualRun;
   busy: boolean;
-  error: string;
+  error: { message: string; canCorrect: boolean } | null;
+  focusCopy: boolean;
   onImport: (reply: string) => void;
   onClose: () => void;
 }) {
-  const [reply, setReply] = useState("");
+  const [draft, setDraft] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("gloss-manual-reply") || "null");
+      if (saved?.code === run.code && typeof saved.text === "string") {
+        return { text: saved.text as string, copied: saved.copied === true };
+      }
+    } catch {
+      // A blocked browser store still allows pasting and importing.
+    }
+    return { text: "", copied: false };
+  });
+  const reply = draft.text;
+  const saveDraft = (patch: Partial<typeof draft>) => {
+    const next = { ...draft, ...patch };
+    setDraft(next);
+    try {
+      localStorage.setItem("gloss-manual-reply", JSON.stringify({ code: run.code, ...next }));
+    } catch {
+      setPasteStatus("Browser storage unavailable. Keep this tab open until import.");
+    }
+  };
+  const setReply = (text: string) => saveDraft({ text });
+  const promptField = useRef<HTMLTextAreaElement>(null);
+  const copyButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (focusCopy) copyButton.current?.focus();
+  }, [focusCopy]);
+  const correction =
+    "Return one complete replacement reply for this batch. " +
+    (error?.message ?? "") +
+    "\n\n" +
+    run.full_prompt;
   const [copyStatus, setCopyStatus] = useState("");
   const [pasteStatus, setPasteStatus] = useState("");
-  const [showPrompt, setShowPrompt] = useState<"full" | "short" | null>(null);
+  const [showPrompt, setShowPrompt] = useState<"full" | "short" | "correction" | null>(null);
+  const [promptFallback, setPromptFallback] = useState(false);
+  useEffect(() => {
+    if (promptFallback && showPrompt) promptField.current?.focus();
+  }, [promptFallback, showPrompt]);
   const [confirmEnd, setConfirmEnd] = useState(false);
   const replyField = useRef<HTMLTextAreaElement>(null);
   const hasMore = run.completed + run.current_count < run.total;
   const first = run.number === 1;
   const defaultPrompt = first ? "full" : "short";
 
-  const copy = async (kind: "full" | "short") => {
-    const prompt = kind === "full" ? run.full_prompt : run.short_prompt;
+  const copy = async (kind: "full" | "short" | "correction") => {
+    const prompt =
+      kind === "correction" ? correction : kind === "full" ? run.full_prompt : run.short_prompt;
     try {
       await navigator.clipboard.writeText(prompt);
+      setPromptFallback(false);
       setShowPrompt(null);
-      setCopyStatus(kind === "full" ? "Full prompt copied." : "Continuation prompt copied.");
+      saveDraft({ copied: true });
+      replyField.current?.focus();
+      setCopyStatus(
+        kind === "correction"
+          ? "Correction prompt copied."
+          : kind === "full"
+            ? "Full prompt copied."
+            : "Continuation prompt copied.",
+      );
     } catch {
+      setPromptFallback(true);
       setShowPrompt(kind);
       setCopyStatus("Clipboard unavailable. Copy the prompt below.");
     }
@@ -75,11 +123,11 @@ export function ManualBatch({
         return;
       }
       if (value.length > 750000) {
-        setPasteStatus("That reply is too large. Paste a smaller batch.");
+        setPasteStatus("That reply is too large. Copy only the JSON reply.");
         return;
       }
+      setPasteStatus("Reply pasted.");
       setReply(value);
-      setPasteStatus("");
     } catch {
       setPasteStatus("Paste directly into the box below.");
     }
@@ -102,9 +150,19 @@ export function ManualBatch({
   return (
     <div className="manual-options">
       <div className="manual-progress" role="status">
-        <h2>Batch {run.number}</h2>
+        <h2>
+          Batch {run.number} of {Math.ceil(run.total / run.size)}
+        </h2>
         <progress value={run.completed} max={run.total} aria-label="Words imported" />
         <p className="help">
+          {error
+            ? "Fix the reply"
+            : reply.trim()
+              ? "Reply ready to validate"
+              : draft.copied
+                ? "Waiting for Gemini reply"
+                : "Copy the prompt to start"}
+          <br />
           {run.completed} of {run.total} words imported · {run.current_count} in this batch
         </p>
       </div>
@@ -117,7 +175,7 @@ export function ManualBatch({
             : "Use the short prompt in the same Gemini chat."}
         </p>
         <div className="manual-actions">
-          <Button disabled={busy} onClick={() => void copy(defaultPrompt)}>
+          <Button ref={copyButton} disabled={busy} onClick={() => void copy(defaultPrompt)}>
             {first ? "Copy full prompt" : "Copy continuation prompt"}
           </Button>
           {!first && (
@@ -129,6 +187,7 @@ export function ManualBatch({
             variant="ghost"
             aria-expanded={!!showPrompt}
             onClick={() => {
+              setPromptFallback(false);
               setCopyStatus("");
               setShowPrompt(showPrompt ? null : defaultPrompt);
             }}
@@ -144,10 +203,17 @@ export function ManualBatch({
         )}
         {showPrompt && (
           <Textarea
+            ref={promptField}
             aria-label="Prompt text"
             rows={5}
             readOnly
-            value={showPrompt === "full" ? run.full_prompt : run.short_prompt}
+            value={
+              showPrompt === "correction"
+                ? correction
+                : showPrompt === "full"
+                  ? run.full_prompt
+                  : run.short_prompt
+            }
             onFocus={(event) => event.currentTarget.select()}
           />
         )}
@@ -182,7 +248,14 @@ export function ManualBatch({
         />
         {error && (
           <Alert id="manual-error" variant="destructive" role="alert">
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>
+              <p>{error.message}</p>
+              {error.canCorrect && (
+                <Button variant="outline" size="sm" onClick={() => void copy("correction")}>
+                  Copy correction prompt
+                </Button>
+              )}
+            </AlertDescription>
           </Alert>
         )}
       </section>

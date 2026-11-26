@@ -8,6 +8,7 @@ export default defineConfig({
   use: {
     baseURL: "http://127.0.0.1:8777",
     browserName: "chromium",
+    launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE },
     channel: process.env.PLAYWRIGHT_CHANNEL || "chromium",
     trace: "retain-on-failure",
   },

@@ -281,6 +281,9 @@ class AnkiGateway:
         by_id = {card.id: card for card in cards}
         unresolved = [item for item in conflicts if by_id.get(item["id"], Card()).decision == "ask"]
         if unresolved:
+            job.emit(
+                "sync_scope", {"ids": [card.id for card in cards], "profile": expected_profile}
+            )
             job.emit("conflicts", unresolved)
             return
         keys: set[str] = set()
@@ -297,89 +300,116 @@ class AnkiGateway:
         to_write = [card for card in cards if card.decision != "skip"]
         if to_write:
             job.emit("progress", {"stage": "sync", "completed": 0, "total": len(to_write)})
-        for completed, card in enumerate(to_write, start=1):
-            if await self.client.call("getActiveProfile") != expected_profile:
-                raise ProviderError("The active Anki profile changed. Start sync again.")
-            if card.decision == "keep_both":
-                card.sync_identity = self.key(card)
-                self.library.save(card)
-            key = card.sync_identity or card.base_identity()
-            matches = await self.matches(card, preferences)
-            if len(matches) > 1:
-                raise ValueError(
-                    "Several Anki notes share this identity. Keep both or resolve them in Anki."
-                )
-            if matches:
-                cards_info = await self.client.call("cardsInfo", cards=matches[0]["cards"])
-                if any(not item["deckName"].startswith(target_prefix) for item in cards_info):
+        saved = 0
+        try:
+            for completed, card in enumerate(to_write, start=1):
+                if await self.client.call("getActiveProfile") != expected_profile:
+                    raise ProviderError("The active Anki profile changed. Start sync again.")
+                if card.decision == "keep_both":
+                    card.sync_identity = self.key(card)
+                    self.library.save(card)
+                key = card.sync_identity or card.base_identity()
+                matches = await self.matches(card, preferences)
+                if len(matches) > 1:
                     raise ValueError(
-                        "A matching note is outside the Gloss parent. Resolve it in Anki."
+                        "Several Anki notes share this identity. Keep both or resolve them in Anki."
                     )
-            missing_kinds = {
-                kind
-                for kind, name in card.audio.items()
-                if not (self.library.media / name).is_file()
-            }
-            audio_card = card
-            if missing_kinds:
-                if not allow_missing:
-                    raise ValueError(
-                        "Some audio is missing. Retry it or explicitly sync without it."
-                    )
-                audio_card = card.model_copy(
-                    update={
-                        "audio": {
-                            kind: name
-                            for kind, name in card.audio.items()
-                            if kind not in missing_kinds
-                        }
-                    }
-                )
-            actions = [
-                {
-                    "action": "storeMediaFile",
-                    "params": {
-                        "filename": name,
-                        "data": base64.b64encode((self.library.media / name).read_bytes()).decode(
-                            "ascii"
-                        ),
-                    },
+                if matches:
+                    cards_info = await self.client.call("cardsInfo", cards=matches[0]["cards"])
+                    if any(not item["deckName"].startswith(target_prefix) for item in cards_info):
+                        raise ValueError(
+                            "A matching note is outside the Gloss parent. Resolve it in Anki."
+                        )
+                missing_kinds = {
+                    kind
+                    for kind, name in card.audio.items()
+                    if not (self.library.media / name).is_file()
                 }
-                for name in set(audio_card.audio.values())
-            ]
-            if actions:
-                await self.client.multi(actions)
-            payload = fields(audio_card, key)
-            if matches and allow_missing:
-                existing = matches[0]["fields"]
-                for kind, name in AUDIO_FIELDS.items():
-                    # Preserve audio that only Anki holds; an empty field would erase it.
-                    if kind not in audio_card.audio and existing.get(name, {}).get("value"):
-                        payload.pop(name, None)
-            if matches:
-                note_id = matches[0]["noteId"]
-                await self.client.call("updateNoteFields", note={"id": note_id, "fields": payload})
-                await self.client.call("changeDeck", cards=matches[0]["cards"], deck=card.deck)
-            else:
-                note_id = await self.client.call(
-                    "addNote",
-                    note={
-                        "deckName": card.deck,
-                        "modelName": preferences.note_type,
-                        "fields": payload,
-                        "tags": ["gloss"],
-                        "options": {"allowDuplicate": False},
-                    },
+                audio_card = card
+                if missing_kinds:
+                    if not allow_missing:
+                        raise ValueError(
+                            "Some audio is missing. Retry it or explicitly sync without it."
+                        )
+                    audio_card = card.model_copy(
+                        update={
+                            "audio": {
+                                kind: name
+                                for kind, name in card.audio.items()
+                                if kind not in missing_kinds
+                            }
+                        }
+                    )
+                actions = [
+                    {
+                        "action": "storeMediaFile",
+                        "params": {
+                            "filename": name,
+                            "data": base64.b64encode(
+                                (self.library.media / name).read_bytes()
+                            ).decode("ascii"),
+                        },
+                    }
+                    for name in set(audio_card.audio.values())
+                ]
+                if actions:
+                    await self.client.multi(actions)
+                payload = fields(audio_card, key)
+                if matches and allow_missing:
+                    existing = matches[0]["fields"]
+                    for kind, name in AUDIO_FIELDS.items():
+                        # Preserve audio that only Anki holds; an empty field would erase it.
+                        if kind not in audio_card.audio and existing.get(name, {}).get("value"):
+                            payload.pop(name, None)
+                if matches:
+                    note_id = matches[0]["noteId"]
+                    await self.client.call(
+                        "updateNoteFields", note={"id": note_id, "fields": payload}
+                    )
+                    await self.client.call("changeDeck", cards=matches[0]["cards"], deck=card.deck)
+                else:
+                    note_id = await self.client.call(
+                        "addNote",
+                        note={
+                            "deckName": card.deck,
+                            "modelName": preferences.note_type,
+                            "fields": payload,
+                            "tags": ["gloss"],
+                            "options": {"allowDuplicate": False},
+                        },
+                    )
+                    if not isinstance(note_id, int):
+                        raise ProviderError("Anki did not return a note id. Retry sync.")
+                card.note_id = note_id
+                card.sync_identity = key
+                card.synced_hash = card.content_hash()
+                self.library.save(card)
+                job.emit("card", card.model_dump())
+                job.emit(
+                    "progress", {"stage": "sync", "completed": completed, "total": len(to_write)}
                 )
-                if not isinstance(note_id, int):
-                    raise ProviderError("Anki did not return a note id. Retry sync.")
-            card.note_id = note_id
-            card.sync_identity = key
-            card.synced_hash = card.content_hash()
-            self.library.save(card)
-            job.emit("card", card.model_dump())
-            job.emit("progress", {"stage": "sync", "completed": completed, "total": len(to_write)})
-        await self.client.call("sync")
+                saved += 1
+        except Exception:
+            job.emit(
+                "sync_remaining",
+                {
+                    "saved": saved,
+                    "profile": expected_profile,
+                    "decks": {card.id: card.deck for card in to_write[saved:]},
+                    "ids": [card.id for card in to_write[saved:]],
+                },
+            )
+            raise
+        if await self.client.call("getActiveProfile") != expected_profile:
+            raise ProviderError(
+                f"The notes are saved in {expected_profile}. Switch back to that profile to sync."
+            )
+        try:
+            await self.client.call("sync")
+        except Exception as exc:
+            raise ProviderError(
+                "The notes are saved in Anki. Open Anki and run Sync to finish."
+            ) from exc
         job.emit(
             "sync_started",
             {"message": "Notes are saved in Anki. Finish its sync to send them to your phone."},

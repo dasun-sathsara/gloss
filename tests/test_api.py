@@ -115,7 +115,17 @@ async def test_sync_requires_pull_ticket_and_same_profile(tmp_path, card):
     ):
         selection = {"ids": [card.id], "allow_missing": True}
         assert (await http.post("/api/anki/sync", json=selection)).status_code == 400
-        pull = (await http.post("/api/anki/pull", json={"ids": [card.id]})).json()
+        blocked = await http.post(
+            "/api/anki/pull", json={"ids": [card.id], "expected_profile": "Different"}
+        )
+        assert blocked.status_code == 400
+        assert "original Anki profile" in blocked.json()["detail"]
+        gateway.client.call.assert_awaited_once_with("getActiveProfile")
+        pull = (
+            await http.post(
+                "/api/anki/pull", json={"ids": [card.id], "expected_profile": "Learner"}
+            )
+        ).json()
         selection["ticket"] = pull["ticket"]
         response = await http.post("/api/anki/sync", json=selection)
         await app.state.jobs.get(response.json()["id"]).task
@@ -424,7 +434,7 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
             },
         )
         assert bad.status_code == 400
-        assert "Missing rows: 1." in bad.json()["detail"]
+        assert "Missing row 1: record." in bad.json()["detail"]
         assert "Duplicate rows: 2." in bad.json()["detail"]
         bad_fields = await http.post(
             import_path,

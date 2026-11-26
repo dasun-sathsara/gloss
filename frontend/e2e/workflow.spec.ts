@@ -82,12 +82,15 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     }),
   );
   await page.goto("/");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("combobox", { name: "Generation mode" }).click();
   await page.getByRole("option", { name: "Automatic generation" }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
   expect((await page.request.get("/favicon.svg")).status()).toBe(200);
   await page
     .getByRole("textbox", { name: "Words", exact: true })
     .fill("curious\nresilient\ncurious\ninvalidword");
+  await page.getByRole("button", { name: "Remove duplicates" }).click();
   await expect(page.getByText("3 words", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Generate", exact: true }).click();
   await expect(page.locator(".word-row")).toHaveCount(3);
@@ -188,15 +191,23 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     .getByRole("button", { name: "Close editor", exact: true })
     .click();
   await page.reload();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   const mode = page.getByRole("combobox", { name: "Generation mode" });
   await expect(mode).toHaveText("Manual copy & paste");
   await mode.click();
   await page.getByRole("option", { name: "Automatic generation" }).click();
+  await page.getByRole("button", { name: "Save settings" }).click();
   await expect(page.locator(".word-row")).toHaveCount(3);
   await expect(deck).toHaveText("Science");
   await expect(
     page.getByText("Wanting to find out more about something.", { exact: true }),
   ).toBeVisible();
+  await page.getByRole("textbox", { name: "Search words" }).fill("curious");
+  await expect(page.getByText(/1 selected outside this filter/)).toBeVisible();
+  await page.getByRole("button", { name: "Select visible only" }).click();
+  await expect(page.getByText("1 selected", { exact: true })).toBeVisible();
+  await page.getByRole("textbox", { name: "Search words" }).clear();
+  await page.getByRole("checkbox", { name: "Select resilient" }).check();
   let pulledIds: string[] = [];
   await page.route("**/api/anki/conflicts", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/anki/pull", (route) => {
@@ -208,20 +219,53 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     syncPayload = route.request().postDataJSON();
     return route.fulfill({ json: { id: "test-sync", kind: "sync" } });
   });
-  await page.route("**/api/jobs/test-sync/events", (route) =>
-    route.fulfill({
+  let syncEvents = 0;
+  let retryProfile: string | undefined;
+  await page.route("**/api/anki/conflicts", (route) => {
+    retryProfile = route.request().postDataJSON().expected_profile;
+    return route.fulfill({ json: [] });
+  });
+  await page.route("**/api/jobs/test-sync/events", async (route) => {
+    const [saved, failed] = pulledIds;
+    const state = await page.request.get("/api/bootstrap").then((response) => response.json());
+    const sent = state.cards.find((card: { id: string }) => card.id === saved);
+    const events: [string, unknown][] =
+      syncEvents++ === 0
+        ? [
+            [
+              "sync_remaining",
+              { saved: 1, ids: [failed], profile: "Test", decks: { [failed]: "Gloss::Science" } },
+            ],
+            ["failed", { message: "Anki stopped." }],
+          ]
+        : [["card", { ...sent, note_id: 123, synced_hash: "confirmed" }]];
+    expect(saved).toBeTruthy();
+    return route.fulfill({
       contentType: "text/event-stream",
-      body: "event: done\ndata: {}\n\n",
-    }),
-  );
+      body: events
+        .concat([["done", {}]])
+        .map(([event, data]) => "event: " + event + "\ndata: " + JSON.stringify(data) + "\n\n")
+        .join(""),
+    });
+  });
   await page.getByRole("button", { name: "Sync to Anki", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Finish syncing in Anki" })).toBeVisible();
   expect(pulledIds).toHaveLength(2);
   await page.getByRole("button", { name: "Sync finished · Save notes", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Sync to Anki", exact: true })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Sync to Anki", exact: true })).toBeDisabled();
   expect(syncPayload?.ticket).toBe("test-ticket");
   expect(syncPayload?.ids).toEqual(pulledIds);
+  const failedId = pulledIds[1];
+  await expect(page.getByText(/1 saved in Anki profile Test/)).toBeVisible();
+  await page.getByRole("button", { name: "Retry remaining cards" }).click();
+  await expect(page.getByRole("dialog", { name: "Finish syncing in Anki" })).toBeVisible();
+  expect(retryProfile).toBe("Test");
+  expect(pulledIds).toEqual([failedId]);
+  await expect(page.getByText(/Send 1 card.*Gloss::Science/)).toBeVisible();
+  await page.getByRole("button", { name: "Sync finished · Save notes", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Retry remaining cards" })).toHaveCount(0);
+  expect(syncPayload?.ids).toEqual([failedId]);
   await page.route("**/api/generate", (route) =>
     route.fulfill({ status: 409, json: { detail: "Generation unavailable" } }),
   );

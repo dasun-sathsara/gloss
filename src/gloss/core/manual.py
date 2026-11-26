@@ -17,6 +17,7 @@ CARD_INSTRUCTIONS = (
     "sense is unclear, flag it for review rather than guessing."
 )
 CONTINUATION_INSTRUCTIONS = "Use the same card-writing instructions and JSON format as before."
+CORRECTION_START = "Return one complete replacement reply for this batch."
 FENCE = re.compile(r"\A```(?:json)?[^\S\n]*\n(.*)\n```\Z", re.IGNORECASE | re.DOTALL)
 
 
@@ -103,6 +104,8 @@ class ManualRun(BaseModel):
 
     def import_cards(self, reply: str) -> list[Card]:
         value = reply.strip().removeprefix("\ufeff").strip()
+        if value.startswith((CARD_INSTRUCTIONS, CONTINUATION_INSTRUCTIONS, CORRECTION_START)):
+            raise ValueError("You pasted the prompt. Copy the reply from Gemini instead.")
         if fence := FENCE.fullmatch(value):
             value = fence[1]
         try:
@@ -145,12 +148,12 @@ class ManualRun(BaseModel):
         issues = [
             describe(label, rows)
             for label, rows in (
-                ("Missing rows", wanted - seen),
                 ("Unexpected rows", seen - wanted),
                 ("Duplicate rows", duplicates),
             )
             if rows
         ]
+        issues[:0] = [f"Missing row {i}: {current[i - 1].word}." for i in sorted(wanted - seen)]
         if issues:
             raise ValueError(" ".join(issues))
         cards = []

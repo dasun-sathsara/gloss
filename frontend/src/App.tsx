@@ -1,4 +1,3 @@
-import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { Choice } from "./components/Choice";
 import { ManualBatch, ManualStart } from "./components/ManualGeneration";
@@ -8,14 +7,13 @@ import { Spinner } from "./components/Spinner";
 import { Alert, AlertDescription } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { Field, FieldLabel } from "./components/ui/field";
 import { Input } from "./components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { WordTable } from "./components/WordTable";
 import { useGloss } from "./hooks/useGloss";
-import { api, type Card, type Decision, type Job, normalizedText } from "./lib";
+import { api, type Card, type Decision, type Job, isReady, normalizedText } from "./lib";
 
 export default function App() {
   const g = useGloss();
@@ -56,6 +54,27 @@ export default function App() {
     label: value.startsWith(parent) ? value.slice(parent.length).replaceAll("::", " / ") : value,
     disabled: g.anki.connected && !names.includes(value),
   }));
+  const hasCards = g.view === "library" ? g.cards.length > 0 : g.batchIds.size > 0;
+  const recovery = g.recovery;
+  const remaining = recovery
+    ? g.cards.filter(
+        (card) =>
+          recovery.ids.includes(card.id) &&
+          (g.view === "library" || g.batchIds.has(card.id)) &&
+          card.decision !== "skip",
+      )
+    : [];
+  const recoveryProfileChanged =
+    !!recovery && !!g.anki.connected && recovery.profile !== g.anki.profile;
+  const retryCards = remaining.filter(isReady);
+  const selectedForRecovery = g.readySelection.some((card) => recovery?.ids.includes(card.id));
+  const recoveryDeckChanged =
+    !!recovery &&
+    retryCards.some(
+      (card) => card.deck !== recovery.decks[card.id] || !g.anki.decks.includes(card.deck),
+    );
+  const hiddenCount =
+    g.selected.size - g.visibleCards.filter((card) => g.selected.has(card.id)).length;
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -145,34 +164,18 @@ export default function App() {
                   run={g.manual}
                   busy={g.busy}
                   error={g.manualError}
+                  focusCopy={g.manual.code === g.nextCopyCode}
                   onImport={g.importManual}
                   onClose={g.closeManual}
                 />
               ) : (
                 <>
-                  <Choice
-                    id="generation-mode"
-                    label="Generation mode"
-                    value={g.generationMode}
-                    options={[
-                      { value: "manual", label: "Manual copy & paste" },
-                      {
-                        value: "api",
-                        label: b.provider_ready
-                          ? "Automatic generation"
-                          : "Automatic (not configured)",
-                        disabled: !b.provider_ready,
-                      },
-                    ]}
-                    onChange={(value) => g.chooseGenerationMode(value as "api" | "manual")}
-                    disabled={g.busy}
-                  />
                   <div className="word-input-group">
                     <Field className="gap-1.5">
                       <FieldLabel htmlFor="words-input">Words</FieldLabel>
                       <Textarea
                         id="words-input"
-                        placeholder="Paste words here, one per line"
+                        placeholder={"curious\npatient: willing to wait"}
                         value={g.text}
                         onChange={(event) => g.setText(event.target.value)}
                         disabled={g.busy}
@@ -195,20 +198,10 @@ export default function App() {
                         }}
                       />
                     </Field>
-                    <Collapsible>
-                      <CollapsibleTrigger asChild>
-                        <Button variant="ghost" size="sm" className="format-trigger">
-                          Input format
-                          <CaretDownIcon aria-hidden="true" />
-                        </Button>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <p className="help">
-                          Separate words with new lines, commas, or semicolons. Add context as{" "}
-                          <code>word: hint</code>.
-                        </p>
-                      </CollapsibleContent>
-                    </Collapsible>
+                    <p className="help">
+                      Separate words with new lines, commas, or semicolons. Add a hint after a
+                      colon.
+                    </p>
                     {g.generationMode === "api" &&
                       b.text_provider === "endpoint" &&
                       b.text_health !== "off" && (
@@ -245,6 +238,25 @@ export default function App() {
                       if (!issues.length) return null;
                       return (
                         <>
+                          {issues.some((entry) => entry.duplicate) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={g.busy}
+                              onClick={() =>
+                                g.setText(
+                                  g
+                                    .parsed!.entries.filter((entry) => !entry.duplicate)
+                                    .map(
+                                      (entry) => entry.word + (entry.hint ? ": " + entry.hint : ""),
+                                    )
+                                    .join("\n"),
+                                )
+                              }
+                            >
+                              Remove duplicates
+                            </Button>
+                          )}
                           {issues.slice(0, 5).map((entry) => {
                             const label = entry.word
                               ? `${entry.word.slice(0, 40)}${entry.word.length > 40 ? "…" : ""}: `
@@ -294,65 +306,143 @@ export default function App() {
                 {g.view === "review" ? "Words" : "Library"}
                 <span className="word-count">{g.visibleCards.length}</span>
               </h2>
-              <Input
-                className="search"
-                aria-label="Search words"
-                placeholder="Search words"
-                value={g.search}
-                onChange={(event) => g.setSearch(event.target.value)}
-              />
+              {hasCards && (
+                <Input
+                  className="search"
+                  aria-label="Search words"
+                  placeholder="Search words"
+                  value={g.search}
+                  onChange={(event) => g.setSearch(event.target.value)}
+                />
+              )}
             </div>
-            <div className="review-toolbar">
-              <span className="selection-count">{g.selected.size} selected</span>
-              <div className="bulk-actions">
+            {hasCards && (
+              <>
+                <div className="review-toolbar">
+                  <span className="selection-count">{g.selected.size} selected</span>
+                  {hiddenCount > 0 && (
+                    <span>
+                      {hiddenCount} selected outside this filter. Bulk actions include them.{" "}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={g.busy}
+                        onClick={() =>
+                          g.setSelected(new Set(g.visibleCards.map((card) => card.id)))
+                        }
+                      >
+                        Select visible only
+                      </Button>
+                    </span>
+                  )}
+                  <div className="bulk-actions">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={g.busy || !g.missingCount || !audioReady}
+                      title={
+                        !audioReady
+                          ? "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
+                          : g.readySelection.length && !g.missingCount
+                            ? "Audio is ready for the selected words."
+                            : undefined
+                      }
+                      className="batch-action"
+                      onClick={g.audio}
+                    >
+                      Prepare audio
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={
+                        g.busy ||
+                        !g.readySelection.length ||
+                        selectedForRecovery ||
+                        !g.anki.ready ||
+                        (g.view === "review" && deckMissing)
+                      }
+                      title={
+                        selectedForRecovery
+                          ? "Use Retry remaining cards to finish the previous send."
+                          : !g.anki.connected
+                            ? "Open Anki with AnkiConnect enabled to sync."
+                            : !g.anki.ready
+                              ? "Open Anki in the header and choose Set up Anki first."
+                              : g.view === "review" && deckMissing
+                                ? "Choose an existing Anki subdeck before syncing."
+                                : undefined
+                      }
+                      className="batch-action"
+                      onClick={() => g.beginSync()}
+                    >
+                      Sync to Anki
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={g.editLocked || !g.selected.size}
+                      onClick={() => g.setRemoveIds([...g.selected])}
+                    >
+                      Remove selected
+                    </Button>
+                  </div>
+                </div>
+                {g.readySelection.length > 0 && (
+                  <p className="help">
+                    {g.readySelection.length} ready to send ·{" "}
+                    {[...new Set(g.readySelection.map((card) => card.deck))].join(", ")} · Audio
+                    optional
+                  </p>
+                )}
+                {!g.anki.connected && (
+                  <p className="help">
+                    Open Anki with AnkiConnect to send your drafts.{" "}
+                    <Button variant="ghost" size="sm" onClick={() => g.setSetupOpen(true)}>
+                      Anki help
+                    </Button>
+                  </p>
+                )}
+              </>
+            )}
+            {recovery && remaining.length > 0 && (
+              <div className="notice message">
+                <div>
+                  <p>
+                    {recovery.saved} saved in Anki profile {recovery.profile}. Still to send:
+                  </p>
+                  <ul>
+                    {remaining.map((card) => (
+                      <li key={card.id}>
+                        {card.word} · {recovery.decks[card.id]}
+                        {card.id === recovery.ids[0] && " · Send stopped here"}
+                        {!isReady(card) && " · Needs edits"}
+                      </li>
+                    ))}
+                  </ul>
+                  {recoveryProfileChanged && (
+                    <p className="help">
+                      Switch to {recovery.profile} in Anki, then refresh in Anki help.
+                    </p>
+                  )}
+                  {!recoveryProfileChanged && g.anki.ready && recoveryDeckChanged && (
+                    <p className="help">Restore the original decks before retrying.</p>
+                  )}
+                </div>
                 <Button
                   variant="outline"
-                  size="sm"
-                  disabled={g.busy || !g.missingCount || !audioReady}
-                  title={
-                    !audioReady
-                      ? "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
-                      : g.readySelection.length && !g.missingCount
-                        ? "Audio is ready for the selected words."
-                        : undefined
-                  }
-                  className="batch-action"
-                  onClick={g.audio}
-                >
-                  Prepare audio
-                </Button>
-                <Button
-                  size="sm"
                   disabled={
                     g.busy ||
-                    !g.readySelection.length ||
                     !g.anki.ready ||
-                    (g.view === "review" && deckMissing)
+                    retryCards.length !== remaining.length ||
+                    recoveryProfileChanged ||
+                    recoveryDeckChanged
                   }
-                  title={
-                    !g.anki.connected
-                      ? "Open Anki with AnkiConnect enabled to sync."
-                      : !g.anki.ready
-                        ? "Open Anki in the header and choose Set up Anki first."
-                        : g.view === "review" && deckMissing
-                          ? "Choose an existing Anki subdeck before syncing."
-                          : undefined
-                  }
-                  className="batch-action"
-                  onClick={g.beginSync}
+                  onClick={() => g.beginSync(retryCards.map((card) => card.id))}
                 >
-                  Sync to Anki
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={g.editLocked || !g.selected.size}
-                  onClick={() => g.setRemoveIds([...g.selected])}
-                >
-                  Remove selected
+                  Retry remaining cards
                 </Button>
               </div>
-            </div>
+            )}
             {g.job && (
               <div
                 className="job-status"
@@ -470,6 +560,9 @@ export default function App() {
       </main>
       <Modal title="Settings" open={g.settingsOpen} onOpenChange={g.setSettingsOpen}>
         <Settings
+          mode={g.generationMode}
+          providerReady={b.provider_ready}
+          manualActive={!!g.manual}
           settings={b.settings}
           voices={b.voices}
           audioProvider={b.audio_provider}
@@ -478,7 +571,10 @@ export default function App() {
           anki={g.anki}
           busy={g.busy}
           audioReady={audioReady}
-          onSave={g.saveSettings}
+          onSave={async (preferences, mode) => {
+            await g.saveSettings(preferences);
+            if (mode !== g.generationMode) g.chooseGenerationMode(mode);
+          }}
           onAddDeck={async (name) => {
             await api("/anki/decks", "POST", { name });
             await g.refreshAnki();
@@ -603,8 +699,16 @@ export default function App() {
         }}
       >
         <p>
-          Wait for syncing to finish in profile {g.syncDialog?.profile}. Resolve any full upload or
-          download prompt in Anki before continuing.
+          Send {g.syncDialog?.ids.length} {g.syncDialog?.ids.length === 1 ? "card" : "cards"} to{" "}
+          {[
+            ...new Set(
+              g.cards
+                .filter((card) => g.syncDialog?.ids.includes(card.id))
+                .map((card) => card.deck),
+            ),
+          ].join(", ")}
+          . Wait for syncing to finish in profile {g.syncDialog?.profile}. Resolve any full upload
+          or download prompt in Anki before continuing.
         </p>
         {g.error && (
           <Alert variant="destructive" className="message">
@@ -679,7 +783,9 @@ export default function App() {
           }
           const groups = [...grouped.values()];
           const keyCounts = new Map<string, number>();
-          for (const card of g.readySelection) {
+          for (const card of g.cards.filter(
+            (card) => g.syncIds.includes(card.id) && isReady(card) && card.decision !== "skip",
+          )) {
             if (card.decision === "keep_both") continue;
             const key = `${normalizedText(card.word)}\0${normalizedText(card.pos)}`;
             keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
