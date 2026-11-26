@@ -86,6 +86,9 @@ export default function App() {
     g.selected.size - g.visibleCards.filter((card) => g.selected.has(card.id)).length;
   return (
     <div className="app-shell">
+      <a className="skip-workspace" href="#gloss-workspace">
+        Skip to workspace
+      </a>
       <header className="app-header">
         <a href="/" className="brand">
           Gloss
@@ -105,6 +108,8 @@ export default function App() {
               g.setSetupOpen(true);
             }}
             disabled={g.busy}
+            className="anki-indicator"
+            data-anki-ready={g.anki.ready}
           >
             Anki {g.anki.connected ? (g.anki.ready ? "connected" : "setup needed") : "offline"}
           </Button>
@@ -121,7 +126,7 @@ export default function App() {
           </Button>
         </div>
       </header>
-      <main className="workspace">
+      <main id="gloss-workspace" className="workspace" tabIndex={-1}>
         {b.demo && (
           <p className="demo-notice">Offline demo with sample definitions and test tones</p>
         )}

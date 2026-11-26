@@ -174,7 +174,12 @@ export function ManualBatch({
             : "Use the full prompt in a new chat."}
         </p>
         <div className="manual-actions">
-          <Button ref={copyButton} disabled={busy} onClick={() => void copy(defaultPrompt)}>
+          <Button
+            ref={copyButton}
+            variant={reply.trim() ? "outline" : "default"}
+            disabled={busy}
+            onClick={() => void copy(defaultPrompt)}
+          >
             {first ? "Copy full prompt" : "Copy continuation prompt"}
           </Button>
           {!first && (

@@ -305,7 +305,10 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top));
   expect(rowActionTops[0]).toEqual(rowActionTops[1]);
   const review = page.locator(".review-section");
-  await expect(review).toHaveCSS("border-top-width", "1px");
+  const workspaceFrame = page.locator(".batch-layout");
+  await expect(workspaceFrame).toHaveCSS("border-top-width", "1px");
+  await expect(workspaceFrame.locator(".composer")).toHaveCSS("border-right-width", "1px");
+  await expect(review).toHaveCSS("border-top-width", "0px");
   expect(
     await review.evaluate((element) => {
       const style = getComputedStyle(element);
