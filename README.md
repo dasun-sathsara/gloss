@@ -176,6 +176,5 @@ The web app and Anki playback buttons use Phosphor. After updating the icon depe
 run `pnpm icons:export` in `frontend/` and run Anki setup again.
 `uv run python scripts/template_sync.py` also installs and verifies the card template.
 
-Browser tests cover playback and the demo workflow. Live generation and Anki note
-updates have been checked on macOS. A fresh Windows installation and playback on
-Anki mobile clients still need manual verification.
+Live generation and Anki note updates have been checked on macOS. A fresh Windows
+installation and playback on Anki mobile clients still need manual verification.
