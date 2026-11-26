@@ -378,14 +378,12 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
         initial = (await http.get("/api/bootstrap")).json()
         assert not initial["provider_ready"]
         assert initial["manual"] is None
-        assert initial["manual_defaults"]["size"] == 25
+        assert initial["manual_default_size"] == 25
         response = await http.post(
             "/api/manual",
             json={
                 "text": "\n".join(words),
                 "deck": deck,
-                "instructions": "Use British English definitions.",
-                "continuation": "Keep the previous style.",
             },
         )
         assert response.status_code == 200, response.text
@@ -393,9 +391,9 @@ async def test_manual_generation_resumes_25_word_batches_without_text_credential
         assert first["current_count"] == 25
         assert first["total"] == 50
         assert first["number"] == 1
-        assert "Use British English" in first["full_prompt"]
-        assert "Use British English" not in first["short_prompt"]
-        assert "Keep the previous style." in first["short_prompt"]
+        assert "Teach English to a Sinhala-speaking" in first["full_prompt"]
+        assert "Teach English to a Sinhala-speaking" not in first["short_prompt"]
+        assert "same card-writing instructions" in first["short_prompt"]
         assert "word 25" in first["full_prompt"]
         assert "word 26" not in first["full_prompt"]
         assert "record" in first["full_prompt"]

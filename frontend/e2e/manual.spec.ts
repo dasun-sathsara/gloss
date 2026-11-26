@@ -29,24 +29,35 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   await page.getByRole("option", { name: "Manual copy & paste" }).click();
   await page.getByLabel("Words", { exact: true }).fill("curious\nresilient\npatient");
   await page.getByLabel("Words per prompt").fill("2");
-  await page.getByText("Customize prompts", { exact: true }).click();
-  await page.getByLabel("New chat instructions").fill("Define words in plain English.");
-  await page.getByLabel("Same chat instructions").fill("Continue in the same style.");
-  await page.getByRole("button", { name: "Create manual batches" }).click();
+  await expect(page.getByText("3 words in 2 batches")).toBeVisible();
+  await expect(page.getByText("Customize prompts", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Start manual generation" }).click();
   await expect(page.getByRole("heading", { name: "Batch 1", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "View prompt" }).click();
-  await expect(page.getByLabel("Prompt text")).toHaveValue(/Define words in plain English/);
+  await expect(page.getByLabel("Prompt text")).toHaveValue(/Teach English to a Sinhala-speaking/);
   const first = await run();
-  await page.getByLabel("JSON reply").fill(
-    JSON.stringify({
-      batch: first.code,
-      items: [row(1, "curious")],
-    }),
-  );
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { readText: () => Promise.reject(new Error("Clipboard permission denied")) },
+    });
+  });
+  await page.getByRole("button", { name: "Paste reply" }).click();
+  await expect(page.getByText("Paste directly into the box below.")).toBeVisible();
+  await expect(page.getByLabel("JSON reply")).toBeFocused();
+  await page
+    .getByLabel("JSON reply")
+    .fill(JSON.stringify({ batch: first.code, items: [row(1, "curious")] }));
   await page.getByRole("button", { name: "Validate and continue" }).click();
   await expect(page.getByText("Missing rows: 2.")).toBeVisible();
   await expect(page.getByText("No words in this batch.")).toBeVisible();
-  await page.getByLabel("JSON reply").fill(
+  await page.evaluate(
+    (value) => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: { readText: () => Promise.resolve(value) },
+      });
+    },
     "```json\n" +
       JSON.stringify({
         batch: first.code,
@@ -54,6 +65,8 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
       }) +
       "\n```",
   );
+  await page.getByRole("button", { name: "Paste reply" }).click();
+  await expect(page.getByLabel("JSON reply")).toHaveValue(/resilient/);
   await page.getByRole("button", { name: "Validate and continue" }).click();
   await expect(page.getByRole("heading", { name: "Batch 2", exact: true })).toBeVisible();
   await page.reload();
@@ -62,8 +75,8 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   await expect(page.getByRole("button", { name: "Copy full prompt" })).toBeVisible();
   await page.getByRole("button", { name: "View prompt" }).click();
   const prompt = page.getByLabel("Prompt text");
-  await expect(prompt).toHaveValue(/Continue in the same style/);
-  await expect(prompt).not.toHaveValue(/Define words in plain English/);
+  await expect(prompt).toHaveValue(/Use the same card-writing instructions/);
+  await expect(prompt).not.toHaveValue(/Teach English to a Sinhala-speaking/);
   const second = await run();
   await page.getByLabel("JSON reply").fill(
     JSON.stringify({
@@ -75,7 +88,7 @@ test("manual batches validate, resume, and stay in review", async ({ page }) => 
   await expect(page.getByText("3 words imported.")).toBeVisible();
   const done = await run();
   await page.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Create manual batches" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start manual generation" })).toBeVisible();
   // The suite shares one test server; leave the library clean for the automatic workflow test.
   for (const id of done.card_ids) {
     const response = await page.request.delete(`/api/cards/${id}`, {

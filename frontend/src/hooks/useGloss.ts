@@ -12,7 +12,6 @@ import {
   hasAudio,
   isReady,
   type Job,
-  type ManualOptions,
   type ManualRun,
   mergeIncoming,
   missingClips,
@@ -547,10 +546,10 @@ export function useGloss() {
       setNotice("");
     });
   };
-  const startManual = (options: ManualOptions) =>
+  const startManual = (size: number) =>
     perform(async () => {
       await flush();
-      const run = await api<ManualRun>("/manual", "POST", { ...options, text, deck });
+      const run = await api<ManualRun>("/manual", "POST", { size, text, deck });
       const keep = new Set(
         cardsRef.current
           .filter((card) => batchIds.has(card.id) && !card.note_id && card.deck === deck)

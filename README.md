@@ -54,10 +54,9 @@ configured; Ctrl+Enter or Cmd+Enter also starts automatic generation.
 ### Manual copy & paste
 
 1. Choose **Manual copy & paste**. Enter your words and choose the batch size (default 25).
-   Under **Customize prompts**, you can edit the writing instructions for a new chat and
-   for continuing the same chat. Gloss appends the required JSON format separately.
-2. Choose **Create manual batches**. Copy the full prompt into Gemini Web or another
-   chat. Paste its JSON reply back into Gloss, with or without the code fence.
+2. Choose **Start manual generation**. Copy the full prompt into Gemini Web or another
+   chat. Return to Gloss and choose **Paste reply** or paste into the JSON field yourself.
+   Gloss accepts JSON with or without the code fence.
 3. Validate the reply. Gloss saves nothing until every expected row passes. If it reports
    a missing, duplicated, or wrong-batch row, keep the batch open and ask the chat for
    a corrected reply. Words the model flags as unclear appear as drafts for review.

@@ -87,11 +87,6 @@ export interface Progress {
   completed: number;
   total: number;
 }
-export interface ManualOptions {
-  size: number;
-  instructions: string;
-  continuation: string;
-}
 export interface ManualRun {
   deck: string;
   size: number;
@@ -112,7 +107,7 @@ export interface Bootstrap {
   library_truncated: boolean;
   active_job: Job | null;
   manual: ManualRun | null;
-  manual_defaults: ManualOptions;
+  manual_default_size: number;
   provider_ready: boolean;
   text_provider: string;
   text_health: "off" | "warming" | "ready" | "down";

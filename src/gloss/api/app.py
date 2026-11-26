@@ -21,7 +21,7 @@ from gloss.anki.gateway import AnkiGateway
 from gloss.anki.templates import available_fonts
 from gloss.config import VOICES, Configuration, Preferences
 from gloss.core.events import Job, Jobs
-from gloss.core.manual import DEFAULT_CONTINUATION, DEFAULT_INSTRUCTIONS, ManualRun
+from gloss.core.manual import DEFAULT_BATCH_SIZE, ManualRun
 from gloss.core.models import CLIP_KINDS, Card, ClipKind, Entry
 from gloss.core.orchestrator import Orchestrator, clip_key
 from gloss.core.parsing import parse_entries
@@ -39,9 +39,7 @@ class Paste(BaseModel):
 
 
 class ManualStart(Paste):
-    size: int = Field(default=25, ge=1, le=100)
-    instructions: str = Field(default=DEFAULT_INSTRUCTIONS, min_length=1, max_length=4_000)
-    continuation: str = Field(default=DEFAULT_CONTINUATION, max_length=1_000)
+    size: int = Field(default=DEFAULT_BATCH_SIZE, ge=1, le=100)
 
 
 class ManualImport(BaseModel):
@@ -385,11 +383,7 @@ def create_app(
             "cards": cards,
             "card_count": total,
             "manual": manual.status() if manual else None,
-            "manual_defaults": {
-                "size": 25,
-                "instructions": DEFAULT_INSTRUCTIONS,
-                "continuation": DEFAULT_CONTINUATION,
-            },
+            "manual_default_size": DEFAULT_BATCH_SIZE,
             "library_truncated": total > len(cards),
             "active_job": {"id": active.id, "kind": active.kind, "stage": active.stage}
             if active
@@ -466,15 +460,11 @@ def create_app(
             raise ValueError("Paste at least one word.")
         if not paste.deck.startswith(configuration.preferences.deck_parent + "::"):
             raise ValueError("Choose a subdeck under the configured parent.")
-        if not paste.instructions.strip():
-            raise ValueError("Enter card-writing instructions.")
         run = ManualRun(
             entries=entries,
             deck=paste.deck,
             order=int(time.time() * 1000) * 1000,
             size=paste.size,
-            instructions=paste.instructions.strip(),
-            continuation=paste.continuation.strip(),
         )
         library.save_manual(run)
         return run.status()
