@@ -2,6 +2,7 @@ import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { Choice } from "./components/Choice";
 import { ManualBatch, ManualStart } from "./components/ManualGeneration";
 import { Modal } from "./components/Modal";
+import { Notifications } from "./components/Notifications";
 import { Settings } from "./components/Settings";
 import { Spinner } from "./components/Spinner";
 import { Alert, AlertDescription } from "./components/ui/alert";
@@ -139,22 +140,6 @@ export default function App() {
               </p>
             </AlertDescription>
           </Alert>
-        )}
-        {g.error && (
-          <Alert variant="destructive" className="message">
-            <AlertDescription>{g.error}</AlertDescription>
-            <Button variant="ghost" size="sm" onClick={() => g.setError("")}>
-              Dismiss
-            </Button>
-          </Alert>
-        )}
-        {g.notice && (
-          <div className="message notice" role="status">
-            <span>{g.notice}</span>
-            <Button variant="ghost" size="sm" onClick={() => g.setNotice("")}>
-              Dismiss
-            </Button>
-          </div>
         )}
         <div className={g.view === "review" ? "batch-layout" : "library-layout"}>
           {g.view === "review" && (
@@ -861,6 +846,12 @@ export default function App() {
           );
         })()}
       </Modal>
+      <Notifications
+        notice={g.notice}
+        error={g.error}
+        inlineError={g.setupOpen || !!g.syncDialog || g.conflicts.length > 0}
+        theme={b.settings.theme}
+      />
     </div>
   );
 }

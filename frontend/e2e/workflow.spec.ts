@@ -248,6 +248,8 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
         .join(""),
     });
   });
+  const heading = page.locator(".review-heading");
+  const headingY = (await heading.boundingBox())!.y;
   await page.getByRole("button", { name: "Sync to Anki", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Finish syncing in Anki" })).toBeVisible();
   expect(pulledIds).toHaveLength(2);
@@ -258,6 +260,9 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   expect(syncPayload?.ids).toEqual(pulledIds);
   const failedId = pulledIds[1];
   await expect(page.getByText(/Gloss saved 1 card in Anki under "Test"/)).toBeVisible();
+  const ankiErrorToast = page.locator("[data-sonner-toast]").filter({ hasText: "Anki stopped." });
+  await expect(ankiErrorToast).toHaveAttribute("data-type", "error");
+  expect(Math.abs((await heading.boundingBox())!.y - headingY)).toBeLessThan(1);
   await page.getByRole("button", { name: "Retry remaining cards" }).click();
   await expect(page.getByRole("dialog", { name: "Finish syncing in Anki" })).toBeVisible();
   expect(retryProfile).toBe("Test");
@@ -272,9 +277,13 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   await page.getByRole("textbox", { name: "Words", exact: true }).fill("record");
   await expect(page.getByText("1 word", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Generate", exact: true }).click();
-  await expect(page.getByRole("alert")).toContainText("Generation unavailable");
+  const failureToast = page
+    .locator("[data-sonner-toast]")
+    .filter({ hasText: "Generation unavailable" });
+  await expect(failureToast).toBeVisible();
   await expect(page.locator(".word-row")).toHaveCount(3);
-  await page.getByRole("button", { name: "Dismiss", exact: true }).click();
+  await failureToast.getByRole("button", { name: "Close toast" }).click();
+  await expect(failureToast).toHaveCount(0);
   await page.setViewportSize({ width: 1366, height: 900 });
   expect(await curious.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(
     110,
@@ -311,15 +320,19 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
   expect(interfaceFonts[0]).toContain("Feixen");
   expect(new Set(interfaceFonts).size).toBe(1);
   const workspaceFrame = page.locator(".batch-layout");
-  await expect(workspaceFrame).toHaveCSS("border-top-width", "1px");
+  await expect(page.locator(".app-shell")).toHaveCSS("border-top-width", "1px");
+  await expect(workspaceFrame).toHaveCSS("border-top-width", "0px");
+  const chromeGap = await page
+    .locator(".app-shell")
+    .evaluate(
+      (shell) =>
+        shell.querySelector(".workspace")!.getBoundingClientRect().top -
+        shell.querySelector(".app-header")!.getBoundingClientRect().bottom,
+    );
+  expect(Math.abs(chromeGap)).toBeLessThan(1);
   await expect(workspaceFrame.locator(".composer")).toHaveCSS("border-right-width", "1px");
   await expect(review).toHaveCSS("border-top-width", "0px");
-  expect(
-    await review.evaluate((element) => {
-      const style = getComputedStyle(element);
-      return style.backgroundColor !== getComputedStyle(document.body).backgroundColor;
-    }),
-  ).toBe(true);
+  await expect(review).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   for (const width of [1050, 900, 800]) {
     await page.setViewportSize({ width, height: 900 });
     await expectNoOverflow();

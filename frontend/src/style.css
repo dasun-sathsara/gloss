@@ -1578,14 +1578,22 @@ textarea {
     --input: #546354;
     --primary: #acd1b1;
   }
-  .app-header {
-    min-block-size: 4rem;
-    margin: 0.75rem 1.5rem 0;
-    padding: 0 calc(var(--desk-frame-inset) - 1px);
-    gap: 1.5rem;
+  .app-shell {
+    max-inline-size: 1280px;
+    margin: 0.75rem auto 1.5rem;
+    inline-size: calc(100% - 3rem);
     border: var(--desk-rule);
     border-radius: 0.875rem;
     background: var(--card);
+    box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 5%, transparent);
+  }
+  .app-header {
+    min-block-size: 4rem;
+    margin: 0;
+    padding: 0 var(--desk-frame-inset);
+    gap: 1.5rem;
+    border: 0;
+    border-block-end: var(--desk-rule);
   }
   .brand {
     display: inline-flex;
@@ -1612,12 +1620,34 @@ textarea {
     box-shadow: 0 0 0 1px var(--border);
   }
   .workspace {
-    padding-block-start: 0.875rem;
+    padding: 0;
+  }
+  .workspace > .demo-notice,
+  .workspace > [data-slot="alert"] {
+    margin: 0;
+    padding: 0.625rem var(--desk-frame-inset);
+    border: 0;
+    border-block-end: var(--desk-rule);
+    border-radius: 0;
   }
   .batch-layout,
   .library-layout {
-    border-radius: 0.875rem;
-    box-shadow: 0 8px 24px color-mix(in srgb, var(--foreground) 5%, transparent);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .review-section {
+    background: transparent;
+  }
+  .batch-layout .composer {
+    border-end-start-radius: 0.8125rem;
+  }
+  .anki-recovery {
+    background: transparent;
+    border-inline-start: 2px solid var(--border);
+    border-radius: 0;
+    padding-inline-start: 0.75rem;
   }
   .review-heading {
     margin-block-end: 1rem;
@@ -1635,8 +1665,9 @@ textarea {
     opacity: 1;
   }
   .review-section [data-slot="table-container"] {
-    border: var(--desk-rule);
-    border-radius: var(--radius);
+    border: 0;
+    border-block: var(--desk-rule);
+    border-radius: 0;
   }
   .word-table th {
     block-size: 2.25rem;
