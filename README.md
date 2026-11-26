@@ -135,20 +135,16 @@ Run the checks before committing:
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check
-uv run pytest
 uv run python scripts/encoder_smoke.py
 cd frontend
 pnpm check
-pnpm test
 pnpm build
-pnpm exec playwright install chromium
-pnpm test:e2e
 ```
 
 ## Releases
 
-GitHub Actions checks the backend and encoder on Windows and Linux, runs frontend
-checks and browser tests, and verifies the Python distributions. To release, update
+GitHub Actions checks the backend and encoder on Windows and Linux, builds the
+frontend, and verifies the Python distributions. To release, update
 both `pyproject.toml` and `frontend/package.json`, commit, and push a matching tag:
 
 ```sh

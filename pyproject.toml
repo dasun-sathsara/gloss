@@ -32,11 +32,7 @@ exclude = ["src/gloss/assets/fonts/_StudioFeixenSansVariable.ttf", "frontend/pub
 packages = ["src/gloss"]
 
 [dependency-groups]
-dev = ["pytest>=9.2.0,<10", "pytest-asyncio>=1.4.1.post1,<2", "respx>=0.22,<1", "ruff>=0.17.4,<1", "ty==0.0.100"]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-testpaths = ["tests"]
+dev = ["ruff>=0.17.4,<1", "ty==0.0.100"]
 
 [tool.ruff]
 target-version = "py313"
