@@ -305,6 +305,11 @@ test("compact batch editing, accessible choices, audio, and persistence", async 
     .evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().top));
   expect(rowActionTops[0]).toEqual(rowActionTops[1]);
   const review = page.locator(".review-section");
+  const interfaceFonts = await page
+    .locator("body, .brand, .composer h1, .review-heading h2, .word-name")
+    .evaluateAll((elements) => elements.map((element) => getComputedStyle(element).fontFamily));
+  expect(interfaceFonts[0]).toContain("Feixen");
+  expect(new Set(interfaceFonts).size).toBe(1);
   const workspaceFrame = page.locator(".batch-layout");
   await expect(workspaceFrame).toHaveCSS("border-top-width", "1px");
   await expect(workspaceFrame.locator(".composer")).toHaveCSS("border-right-width", "1px");
