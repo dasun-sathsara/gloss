@@ -4,7 +4,20 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from pydantic import BaseModel
+
+from gloss.core.manual import ManualRun
 from gloss.core.models import Card
+
+
+class SyncRecovery(BaseModel):
+    id: str
+    profile: str
+    decks: dict[str, str]
+    saved: int = 0
+
+    def status(self) -> dict:
+        return {**self.model_dump(), "ids": list(self.decks)}
 
 
 class Library:
@@ -26,6 +39,12 @@ class Library:
         self.db.execute(
             "CREATE TABLE IF NOT EXISTS clips (key TEXT PRIMARY KEY, filename TEXT NOT NULL)"
         )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS manual_run (id INTEGER PRIMARY KEY, data TEXT NOT NULL)"
+        )
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS sync_recovery (id INTEGER PRIMARY KEY, data TEXT NOT NULL)"
+        )
         self.db.commit()
 
     def save(self, card: Card) -> Card:
@@ -41,13 +60,33 @@ class Library:
             raise KeyError(card_id)
         return Card.model_validate_json(row[0])
 
+    def _write_cards(self, cards: list[Card]) -> None:
+        self.db.executemany(
+            "INSERT OR REPLACE INTO cards VALUES (?, ?)",
+            [(card.id, card.model_dump_json()) for card in cards],
+        )
+
     def save_many(self, cards: list[Card]) -> list[Card]:
         with self.db:
-            self.db.executemany(
-                "INSERT OR REPLACE INTO cards VALUES (?, ?)",
-                [(card.id, card.model_dump_json()) for card in cards],
-            )
+            self._write_cards(cards)
         return cards
+
+    def manual_run(self) -> ManualRun | None:
+        row = self.db.execute("SELECT data FROM manual_run WHERE id=1").fetchone()
+        return ManualRun.model_validate_json(row[0]) if row else None
+
+    def save_manual(self, run: ManualRun, cards: list[Card] | None = None) -> None:
+        # Commit the drafts and the next batch together.
+        with self.db:
+            if cards:
+                self._write_cards(cards)
+            self.db.execute(
+                "INSERT OR REPLACE INTO manual_run VALUES (1, ?)", (run.model_dump_json(),)
+            )
+
+    def clear_manual(self) -> None:
+        with self.db:
+            self.db.execute("DELETE FROM manual_run WHERE id=1")
 
     def all(self, limit: int = 10_000) -> list[Card]:
         return [
@@ -55,12 +94,6 @@ class Library:
             for row in self.db.execute(
                 "SELECT data FROM cards ORDER BY rowid DESC LIMIT ?", (limit,)
             )
-        ]
-
-    def all_unlimited(self) -> list[Card]:
-        return [
-            Card.model_validate_json(row[0])
-            for row in self.db.execute("SELECT data FROM cards ORDER BY rowid DESC")
         ]
 
     def count(self) -> int:
@@ -74,13 +107,29 @@ class Library:
         row = self.db.execute("SELECT filename FROM clips WHERE key=?", (key,)).fetchone()
         return row[0] if row and (self.media / row[0]).is_file() else None
 
-    def clip_map(self) -> dict[str, str]:
+    def clip_files(self) -> set[str]:
         files = {entry.name for entry in os.scandir(self.media) if entry.is_file()}
         return {
-            key: filename
-            for key, filename in self.db.execute("SELECT key, filename FROM clips")
+            filename
+            for (filename,) in self.db.execute("SELECT filename FROM clips")
             if filename in files
         }
+
+    def sync_recovery(self) -> SyncRecovery | None:
+        row = self.db.execute("SELECT data FROM sync_recovery WHERE id=1").fetchone()
+        return SyncRecovery.model_validate_json(row[0]) if row else None
+
+    def save_sync_recovery(self, recovery: SyncRecovery | None, card: Card | None = None) -> None:
+        with self.db:
+            if card is not None:
+                self._write_cards([card])
+            if recovery and recovery.decks:
+                self.db.execute(
+                    "INSERT OR REPLACE INTO sync_recovery VALUES (1, ?)",
+                    (recovery.model_dump_json(),),
+                )
+            else:
+                self.db.execute("DELETE FROM sync_recovery WHERE id=1")
 
     def save_clip(self, key: str, data: bytes) -> str:
         name = f"gloss_{key}.mp3"

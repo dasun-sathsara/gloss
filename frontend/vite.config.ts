@@ -2,7 +2,6 @@ import { fileURLToPath, URL } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, lazyPlugins } from "vite-plus";
-import { configDefaults } from "vite-plus/test/config";
 
 export default defineConfig({
   fmt: {},
@@ -10,12 +9,6 @@ export default defineConfig({
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },
-  },
-  test: {
-    // Playwright owns e2e/; Vitest must not collect its specs.
-    exclude: [...configDefaults.exclude, "e2e/**"],
-    // No Vitest unit tests yet; `vp test` passes, and future tests run automatically.
-    passWithNoTests: true,
   },
   resolve: { alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) } },
   plugins: lazyPlugins(() => [react(), tailwindcss()]),

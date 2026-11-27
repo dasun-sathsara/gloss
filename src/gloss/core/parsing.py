@@ -1,6 +1,6 @@
 import re
 
-from gloss.core.models import Entry, normalized
+from gloss.core.models import Entry
 
 
 def parse_entries(text: str) -> list[Entry]:
@@ -17,7 +17,7 @@ def parse_entries(text: str) -> list[Entry]:
             continue
         parts = re.split(r"\s*:\s*|\s+-\s+", raw, maxsplit=1)
         word, hint = parts[0].strip(), parts[1].strip() if len(parts) == 2 else ""
-        key = (normalized(word), normalized(hint))
+        key = (word, hint)
         warning = "Enter a word before the hint." if not word else ""
         if len(word) > 120 or len(hint) > 500:
             warning = "This entry is too long. Use a word or a short phrase."

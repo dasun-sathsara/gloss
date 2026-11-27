@@ -6,6 +6,7 @@ export type Decision = "ask" | "overwrite" | "keep_both" | "skip";
 export interface Card {
   id: string;
   source_word: string;
+  manual?: boolean;
   hint: string;
   word: string;
   pos: string;
@@ -23,12 +24,17 @@ export interface Card {
   note_id: number | null;
   synced_hash: string;
 }
+export type WoofVoice = "juno" | "mira";
+
 export interface Preferences {
   batch_size: number;
+  manual_batch_size: number;
   word_cap: number;
   text_model: string;
   tts_model: string;
   voice: string;
+  audio_provider: "woof" | "google";
+  woof_voice: WoofVoice | null;
   deck_parent: string;
   deck_default: string;
   seed_decks: string[];
@@ -86,24 +92,55 @@ export interface Progress {
   completed: number;
   total: number;
 }
+export interface ManualRun {
+  deck: string;
+  size: number;
+  code: string;
+  number: number;
+  completed: number;
+  total: number;
+  current_count: number;
+  card_ids: string[];
+  full_prompt: string;
+  short_prompt: string;
+}
+export interface SyncRecovery {
+  id: string;
+  saved: number;
+  ids: string[];
+  profile: string;
+  decks: Record<string, string>;
+}
 export interface Bootstrap {
   settings: Preferences;
   voices: string[];
+  woof_voices: WoofVoice[];
+  woof_default_voice: WoofVoice;
+  woof_configured: boolean;
+  google_audio_available: boolean;
   cards: Card[];
   card_count: number;
   library_truncated: boolean;
   active_job: Job | null;
+  sync_recovery: SyncRecovery | null;
+  manual: ManualRun | null;
   provider_ready: boolean;
   text_provider: string;
   text_health: "off" | "warming" | "ready" | "down";
   text_health_detail: string;
   audio_ready: boolean;
-  audio_provider: "demo" | "woof" | "google" | "";
+  audio_provider: "demo" | "woof" | "google";
   audio_voice: string;
   config_dir: string;
   demo: boolean;
   fonts_complete: boolean;
 }
+export function audioSetupHint(provider: Bootstrap["audio_provider"]) {
+  return provider === "google"
+    ? "Set GOOGLE_CLOUD_PROJECT in your .env file, then restart Gloss."
+    : "Set WOOF_MODEL_DIR in your .env file, then restart Gloss.";
+}
+
 export interface Conflict {
   id: string;
   word: string;
@@ -126,6 +163,14 @@ function detailFrom(value: unknown): string {
 export function normalizedText(value: string): string {
   return value.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
 }
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 export async function api<T>(path: string, method = "GET", data?: unknown): Promise<T> {
   const response = await fetch(`/api${path}`, {
     method,
@@ -134,7 +179,7 @@ export async function api<T>(path: string, method = "GET", data?: unknown): Prom
   });
   if (!response.ok) {
     const value = await response.json().catch(() => ({}));
-    throw new Error(detailFrom(value));
+    throw new ApiError(detailFrom(value), response.status);
   }
   return response.json();
 }
@@ -177,16 +222,19 @@ export function describeSummary(summary: Summary): string {
   const parts: string[] = [];
   if (summary.words !== undefined) {
     parts.push(`Added ${plural(summary.words, "word")}.`);
-    if (summary.needs_review) parts.push(`${summary.needs_review} to review.`);
+    if (summary.needs_review)
+      parts.push(
+        `${plural(summary.needs_review, "card")} ${summary.needs_review === 1 ? "needs" : "need"} review.`,
+      );
   }
   const audio = summary.audio;
   if (audio?.clips) {
     if (audio.failed)
       parts.push(
-        `Audio: ${audio.ready} of ${audio.clips} clips ready. Choose Prepare audio to retry ${audio.failed === 1 ? "the one" : `the ${audio.failed}`} that failed.`,
+        `${audio.ready} of ${audio.clips} audio clips are ready. Choose Prepare audio to retry ${plural(audio.failed, "failed clip")}.`,
       );
     else if (audio.ready === audio.clips) parts.push("Audio is ready.");
-    else parts.push(`Audio: ${audio.ready} of ${audio.clips} clips ready.`);
+    else parts.push(`${audio.ready} of ${audio.clips} audio clips are ready.`);
   }
   return parts.join(" ");
 }

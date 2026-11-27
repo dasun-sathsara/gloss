@@ -4,9 +4,12 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+WOOF_VOICES = ("juno", "mira")
 
 VOICES = (
     "Achernar",
@@ -52,17 +55,20 @@ def config_dir() -> Path:
 
 class Preferences(BaseModel):
     batch_size: int = Field(default=5, ge=1, le=5)
+    manual_batch_size: int = Field(default=25, ge=1, le=100)
     word_cap: int = Field(default=50, ge=1, le=100)
     text_model: str = Field(default="gemini-3.8-flash", pattern=r"^[\w.-]{1,100}$")
     tts_model: str = Field(default="gemini-3.8-flash-tts", pattern=r"^[\w.-]{1,100}$")
     voice: str = "Kore"
+    audio_provider: Literal["woof", "google"] = "woof"
+    woof_voice: Literal["juno", "mira"] | None = None
     deck_parent: str = "Gloss"
     deck_default: str = "General"
     seed_decks: list[str] = Field(default_factory=lambda: ["General", "Subject 1", "Subject 2"])
     last_deck: str = ""
     note_type: str = Field(default="Gloss", min_length=1, max_length=80)
     # Which engine recorded the clips. Empty means the Google voice above; a local
-    # engine carries its name and voice so a different voice invalidates old clips.
+    # engine carries its name and voice so recordings with different voices cache separately.
     audio_engine: str = ""
     tts_concurrency: int = Field(default=2, ge=1, le=3)
     tts_rpm: int = Field(default=20, ge=1, le=120)
@@ -118,13 +124,13 @@ class Environment(BaseSettings):
     google_cloud_location: str = "global"
     google_application_credentials: str = ""
     # OpenAI-compatible text endpoint, for example https://example.modal.run/v1.
-    # When set, text generation goes here and Google is only used for audio.
+    # When set, text generation goes here instead of Google.
     text_api_base: str = ""
     text_api_key: str = ""
     # Cold starts on a self-hosted router can take a minute. Gloss retries one
     # timeout, so the worst case is twice this value.
     text_timeout: float = Field(default=240.0, ge=10, le=900)
-    # Optional local audio through Underdog Woof. The weights are downloaded separately
+    # Local audio through Underdog Woof. The weights are downloaded separately
     # and licensed for non-commercial use, so they stay outside the checkout.
     woof_model_dir: str = ""
     woof_voice: str = "juno"
@@ -165,15 +171,23 @@ class Configuration:
                 self.quarantine_settings(path, exc)
                 data = defaults
         try:
-            self.preferences = Preferences(**data)
+            self.preferences = Preferences.model_validate(data)
         except ValidationError as exc:
             self.quarantine_settings(path, exc)
-            self.preferences = Preferences(**defaults)
+            self.preferences = Preferences.model_validate(defaults)
         self.apply_audio_engine(self.preferences)
+
+    def woof_voice(self, preferences: Preferences | None = None) -> str:
+        if preferences and preferences.woof_voice:
+            return preferences.woof_voice
+        fallback = self.environment.woof_voice
+        return fallback if fallback in WOOF_VOICES else "juno"
 
     def apply_audio_engine(self, preferences: Preferences) -> Preferences:
         preferences.audio_engine = (
-            f"woof-{self.environment.woof_voice}-v2" if self.environment.woof_model_dir else ""
+            f"woof-{self.woof_voice(preferences)}-v2"
+            if preferences.audio_provider == "woof"
+            else ""
         )
         return preferences
 

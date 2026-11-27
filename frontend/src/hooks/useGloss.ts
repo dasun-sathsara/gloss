@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type AnkiStatus,
   api,
+  audioSetupHint,
+  ApiError,
   type Bootstrap,
   type Card,
   type Clip,
@@ -12,6 +14,7 @@ import {
   hasAudio,
   isReady,
   type Job,
+  type ManualRun,
   mergeIncoming,
   missingClips,
   normalizedText,
@@ -19,14 +22,36 @@ import {
   type Preferences,
   type Progress,
   type Summary,
+  type SyncRecovery,
 } from "../lib";
 
+function clearReplyDraft(code?: string) {
+  try {
+    const key = "gloss-manual-reply";
+    if (JSON.parse(localStorage.getItem(key) || "null")?.code === code)
+      localStorage.removeItem(key);
+  } catch {
+    /* The server has already saved the import or discard. */
+  }
+}
 const emptyAnki: AnkiStatus = { connected: false, ready: false, decks: [] };
 export function useGloss() {
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [cards, setCards] = useState<Card[]>([]);
   const [anki, setAnki] = useState<AnkiStatus>(emptyAnki);
   const [text, setText] = useState("");
+  const [manual, setManual] = useState<ManualRun | null>(null);
+  const [recovery, setRecovery] = useState<SyncRecovery | null>(null);
+  const retryProfile = useRef<string | undefined>(undefined);
+  const recoveryId = useRef<string | undefined>(undefined);
+  const syncIds = useRef<string[]>([]);
+  const [manualFocusCode, setManualFocusCode] = useState("");
+  const wordInput = useRef<HTMLTextAreaElement>(null);
+  const restoreWordFocus = useRef(false);
+  const [manualError, setManualError] = useState<{ message: string; canCorrect: boolean } | null>(
+    null,
+  );
+  const [generationMode, setGenerationMode] = useState<"api" | "manual">("manual");
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [deck, setDeck] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -43,11 +68,19 @@ export function useGloss() {
   const [progress, setProgress] = useState<Progress | null>(null);
   const [pending, setPending] = useState(false);
   const [view, setView] = useState<"review" | "library">("review");
-  const [search, setSearch] = useState("");
+  const [search, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const setSearch = (query: string) => {
+    setQuery(query);
+    setPage(0);
+  };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [setupOpen, setSetupOpen] = useState(false);
   const [moveParent, setMoveParent] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [notice, setNoticeEvent] = useState<{ message: string } | null>(null);
+  const setNotice = useCallback((message: string) => {
+    setNoticeEvent(message ? { message } : null);
+  }, []);
   const [error, setError] = useState("");
   const [confirmCap, setConfirmCap] = useState(false);
   const [syncDialog, setSyncDialog] = useState<{
@@ -75,6 +108,12 @@ export function useGloss() {
   dirtyRef.current = dirty;
   const busy = pending || !!job;
   const stage = progress?.stage ?? job?.stage ?? job?.kind;
+  useEffect(() => {
+    if (!busy && !manual && wordInput.current && restoreWordFocus.current) {
+      restoreWordFocus.current = false;
+      wordInput.current.focus();
+    }
+  }, [busy, manual, view]);
   const audioRunning = !!job && stage === "audio";
   // Words stay editable while audio records. The server keeps edits and drops stale clips.
   const editLocked = pending || (!!job && !audioRunning);
@@ -161,32 +200,34 @@ export function useGloss() {
         setBootstrap(value);
         setCards(value.cards);
         setJob(value.active_job);
+        setManual(value.manual);
+        setRecovery(value.sync_recovery);
         setDeck(
           (old) =>
             old ||
             value.settings.last_deck ||
             `${value.settings.deck_parent}::${value.settings.deck_default}`,
         );
-        const restoredIds = new Set(
-          [...initialBatchIds.current].filter((id) => value.cards.some((card) => card.id === id)),
+        const importedIds = new Set(value.manual?.card_ids ?? []);
+        const manualDeck = value.manual?.deck;
+        const restored = value.cards.filter((card) =>
+          manualDeck
+            ? card.deck === manualDeck &&
+              (importedIds.has(card.id) || (!card.note_id && initialBatchIds.current.has(card.id)))
+            : initialBatchIds.current.has(card.id),
         );
-        if (restoredIds.size) {
-          setBatchIds(restoredIds);
-          const restored = value.cards.find((card) => restoredIds.has(card.id));
-          if (restored?.deck) setDeck(restored.deck);
-          setSelected(
-            new Set(
-              value.cards
-                .filter((card) => restoredIds.has(card.id) && isReady(card))
-                .map((card) => card.id),
-            ),
-          );
-        } else {
-          const drafts = value.cards.filter((card) => !card.note_id).slice(0, 100);
-          setBatchIds(new Set(drafts.map((card) => card.id)));
-          setSelected(new Set(drafts.filter(isReady).map((card) => card.id)));
-          if (drafts[0]?.deck) setDeck(drafts[0].deck);
-        }
+        // An empty manual batch is intentional. Never populate it from unrelated
+        // library drafts: the Batch view can move every card to its selected deck.
+        const batch =
+          manualDeck || restored.length
+            ? restored
+            : value.cards.filter((card) => !card.note_id).slice(0, 100);
+        setBatchIds(new Set(batch.map((card) => card.id)));
+        setSelected(
+          new Set(value.sync_recovery?.ids ?? batch.filter(isReady).map((card) => card.id)),
+        );
+        const restoredDeck = manualDeck || batch[0]?.deck;
+        if (restoredDeck) setDeck(restoredDeck);
       })
       .catch((error) => setError(error.message));
     refreshAnki().catch((error) => setError(error.message));
@@ -259,6 +300,7 @@ export function useGloss() {
   }, [dirty.size]);
 
   useEffect(() => {
+    setParsed(null);
     const controller = new AbortController();
     const timeout = setTimeout(async () => {
       if (!text.trim()) {
@@ -278,7 +320,7 @@ export function useGloss() {
           body: JSON.stringify({ text }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data.detail || "Could not parse this paste.");
+        if (!response.ok) throw new Error(data.detail || "Could not read the word list.");
         setParsed(data);
         if (parseErrorMessage.current) {
           const target = parseErrorMessage.current;
@@ -288,7 +330,7 @@ export function useGloss() {
       } catch (error) {
         if (!controller.signal.aborted) {
           setParsed(null);
-          const message = error instanceof Error ? error.message : "Could not parse.";
+          const message = error instanceof Error ? error.message : "Could not read the word list.";
           parseErrorMessage.current = message;
           setError(message);
         }
@@ -304,7 +346,7 @@ export function useGloss() {
     if (!job) return;
     let ended = false;
     const lostWarning =
-      "Gloss lost its progress connection. It will keep trying; saved work is safe.";
+      "Gloss lost the connection to this run. It will reconnect. Your saved work is safe.";
     let lostConnection = false;
     const clearLostWarning = () => {
       if (!lostConnection) return;
@@ -318,6 +360,15 @@ export function useGloss() {
       clearLostWarning();
       const card: Card = JSON.parse((event as MessageEvent).data);
       receiveCard(card);
+      if (job.kind === "sync") {
+        setRecovery((old) => {
+          if (!old?.ids.includes(card.id)) return old;
+          const ids = old.ids.filter((id) => id !== card.id);
+          const decks = { ...old.decks };
+          delete decks[card.id];
+          return ids.length ? { ...old, ids, decks, saved: old.saved + 1 } : null;
+        });
+      }
       if (job.kind === "text" && !removed.current.has(card.id)) {
         setBatchIds((old) => new Set([...old, card.id]));
         if (isReady(card)) setSelected((old) => new Set([...old, card.id]));
@@ -341,6 +392,21 @@ export function useGloss() {
     eventSource.addEventListener("conflicts", (event) => {
       clearLostWarning();
       setConflicts(JSON.parse((event as MessageEvent).data));
+    });
+    eventSource.addEventListener("sync_scope", (event) => {
+      const scope = JSON.parse((event as MessageEvent).data) as {
+        ids: string[];
+        profile: string;
+        recovery_id?: string | null;
+      };
+      syncIds.current = scope.ids;
+      retryProfile.current = scope.profile;
+      recoveryId.current = scope.recovery_id ?? undefined;
+    });
+    eventSource.addEventListener("sync_remaining", (event) => {
+      const remaining = JSON.parse((event as MessageEvent).data) as SyncRecovery;
+      setRecovery(remaining);
+      setSelected(new Set(remaining.ids));
     });
     eventSource.addEventListener("sync_started", (event) => {
       clearLostWarning();
@@ -371,6 +437,8 @@ export function useGloss() {
           eventSource.close();
           setJob(null);
           setProgress(null);
+          setRecovery(value.sync_recovery);
+          if (value.sync_recovery) setSelected(new Set(value.sync_recovery.ids));
           setCards((old) => {
             const localById = new Map(old.map((card) => [card.id, card]));
             return value.cards
@@ -380,7 +448,7 @@ export function useGloss() {
                 return local && dirtyRef.current.has(card.id) ? mergeIncoming(local, card) : card;
               });
           });
-          setError("The progress connection ended. Saved work has been reloaded.");
+          setError("Gloss lost the connection to this run and reloaded your saved work.");
         }
       } catch {
         // The server may be briefly unreachable while the run keeps going. Keep the
@@ -393,7 +461,7 @@ export function useGloss() {
       eventSource.close();
       source.current = null;
     };
-  }, [job, refreshAnki, receiveCard]);
+  }, [job, refreshAnki, receiveCard, setNotice]);
 
   useEffect(() => {
     if (job || pending || !audioQueue.size || !bootstrap?.audio_ready) return;
@@ -410,7 +478,7 @@ export function useGloss() {
         setJob(next);
       })
       .catch((error) =>
-        setError(error instanceof Error ? error.message : "Audio could not start. Try again."),
+        setError(error instanceof Error ? error.message : "Could not start recording. Try again."),
       )
       .finally(() => setPending(false));
   }, [job, pending, audioQueue, bootstrap?.audio_ready]);
@@ -434,9 +502,22 @@ export function useGloss() {
     try {
       await operation();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "The action failed. Try again.");
+      setError(error instanceof Error ? error.message : "Could not finish. Try again.");
     } finally {
       setPending(false);
+    }
+  };
+  const chooseGenerationMode = (mode: "api" | "manual") => {
+    if (mode === "api" && !bootstrap?.provider_ready) return;
+    setGenerationMode(mode);
+    if (mode === "api" && bootstrap?.text_provider === "endpoint") {
+      void perform(async () => {
+        const status = await api<Pick<Bootstrap, "text_health" | "text_health_detail">>(
+          "/text/warm",
+          "POST",
+        );
+        setBootstrap((old) => (old ? { ...old, ...status } : old));
+      });
     }
   };
   const saveCard = async (card: Card) => {
@@ -460,6 +541,7 @@ export function useGloss() {
     }
     if (
       bootstrap?.audio_ready &&
+      !saved.manual &&
       bootstrap?.settings.auto_audio &&
       isReady(saved) &&
       !hasAudio(saved)
@@ -541,33 +623,90 @@ export function useGloss() {
       setNotice("");
     });
   };
+  const startManual = () =>
+    perform(async () => {
+      await flush();
+      const run = await api<ManualRun>("/manual", "POST", { text, deck });
+      const keep = new Set(
+        cardsRef.current
+          .filter((card) => batchIds.has(card.id) && !card.note_id && card.deck === deck)
+          .map((card) => card.id),
+      );
+      setBatchIds(keep);
+      setSelected((old) => new Set([...old].filter((id) => keep.has(id))));
+      setManualFocusCode(run.code);
+      setManual(run);
+      setManualError(null);
+      setText("");
+      setSearch("");
+      setNotice("");
+    });
+  const importManual = (reply: string) =>
+    perform(async () => {
+      setManualError(null);
+      const result = await api<{ manual: ManualRun; cards: Card[] }>("/manual/import", "POST", {
+        reply,
+      }).catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "The import failed. Try again.";
+        setManualError({
+          message,
+          canCorrect:
+            error instanceof ApiError &&
+            error.status === 400 &&
+            !/pasted the prompt|another batch/i.test(message),
+        });
+        return null;
+      });
+      if (!result) return;
+      setCards((old) => [...result.cards, ...old]);
+      setBatchIds((old) => new Set([...old, ...result.cards.map((card) => card.id)]));
+      setSelected(
+        (old) => new Set([...old, ...result.cards.filter(isReady).map((card) => card.id)]),
+      );
+      clearReplyDraft(manual?.code);
+      setManualFocusCode(result.manual.code);
+      setManual(result.manual);
+      setSearch("");
+      setNotice(
+        describeSummary({
+          words: result.cards.length,
+          needs_review: result.cards.filter((card) => !isReady(card)).length,
+        }),
+      );
+    });
+  const closeManual = () =>
+    perform(async () => {
+      if (!manual) return;
+      await api("/manual/" + manual.code, "DELETE");
+      clearReplyDraft(manual?.code);
+      restoreWordFocus.current = true;
+      setManual(null);
+    });
   const selection = useMemo(() => cards.filter((card) => selected.has(card.id)), [cards, selected]);
   const readySelection = useMemo(
     () => selection.filter((card) => isReady(card) && card.decision !== "skip"),
     [selection],
   );
+  // Input order within each batch, with newest batches first in the library.
+  const orderedCards = useMemo(() => {
+    if (view === "review") {
+      return cards.filter((card) => batchIds.has(card.id)).sort((a, b) => a.order - b.order);
+    }
+    return [...cards].sort(
+      (a, b) =>
+        Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
+        (a.order % 1000) - (b.order % 1000),
+    );
+  }, [cards, view, batchIds]);
   const visibleCards = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return (
-      cards
-        .filter(
-          (card) =>
-            (view === "library" || batchIds.has(card.id)) &&
-            (!query ||
-              `${card.word} ${card.source_word} ${card.pos} ${card.meaning} ${card.sinhala} ${card.example1} ${card.example2} ${view === "library" ? card.deck : ""}`
-                .toLowerCase()
-                .includes(query)),
-        )
-        // Deterministic order: input order in a batch; newest batch first in the
-        // library, still in input order within each batch.
-        .sort((a, b) =>
-          view === "library"
-            ? Math.floor(b.order / 1000) - Math.floor(a.order / 1000) ||
-              (a.order % 1000) - (b.order % 1000)
-            : a.order - b.order,
-        )
+    if (!query) return orderedCards;
+    return orderedCards.filter((card) =>
+      `${card.word} ${card.source_word} ${card.pos} ${card.meaning} ${card.sinhala} ${card.example1} ${card.example2} ${view === "library" ? card.deck : ""}`
+        .toLowerCase()
+        .includes(query),
     );
-  }, [cards, view, batchIds, search]);
+  }, [orderedCards, search, view]);
   const audio = () =>
     perform(async () => {
       await flush();
@@ -591,16 +730,27 @@ export function useGloss() {
       setDeck(target);
     });
   const pullAndOpenSync = async (ids: string[]) => {
-    const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", { ids });
+    const pull = await api<{ ticket: string; profile: string }>("/anki/pull", "POST", {
+      ids,
+      expected_profile: retryProfile.current,
+      recovery_id: recoveryId.current,
+    });
     setSyncDialog({ ids, ...pull });
     setAllowMissing(false);
   };
-  const beginSync = () =>
+  const beginSync = (retryIds?: string[]) =>
     perform(async () => {
       await flush();
-      if (view === "review") await assignBatchDeck(deck);
-      const ids = readySelection.map((card) => card.id);
-      const found = await api<Conflict[]>("/anki/conflicts", "POST", { ids });
+      const ids = retryIds ?? readySelection.map((card) => card.id);
+      retryProfile.current = retryIds ? recovery?.profile : undefined;
+      recoveryId.current = retryIds ? recovery?.id : undefined;
+      syncIds.current = ids;
+      if (retryIds) setSelected(new Set(ids));
+      const found = await api<Conflict[]>("/anki/conflicts", "POST", {
+        ids,
+        expected_profile: retryProfile.current,
+        recovery_id: recoveryId.current,
+      });
       const byId = new Map(cardsRef.current.map((card) => [card.id, card]));
       const hasAsk = found.some((conflict) => byId.get(conflict.id)?.decision === "ask");
       const collisionGroups = new Map<string, number>();
@@ -627,19 +777,31 @@ export function useGloss() {
     perform(async () => {
       await flush();
       const ids = cardsRef.current
-        .filter((card) => selected.has(card.id) && isReady(card) && card.decision !== "skip")
+        .filter(
+          (card) => syncIds.current.includes(card.id) && isReady(card) && card.decision !== "skip",
+        )
         .map((card) => card.id);
       if (!ids.length) {
         setConflicts([]);
         setNotice("Skipped the conflicting words.");
         return;
       }
-      if (view === "review") await assignBatchDeck(deck);
       await pullAndOpenSync(ids);
       setConflicts([]);
     });
 
-  const missing = useMemo(() => readySelection.some((card) => !hasAudio(card)), [readySelection]);
+  const discardRecovery = () =>
+    perform(async () => {
+      if (!recovery) return;
+      await api("/anki/recovery/" + recovery.id, "DELETE");
+      setRecovery(null);
+    });
+  const syncMissing = syncDialog
+    ? syncDialog.ids.some((id) => {
+        const card = cards.find((value) => value.id === id);
+        return !card || !hasAudio(card);
+      })
+    : false;
   const missingCount = useMemo(
     () => readySelection.reduce((total, card) => total + missingClips(card), 0),
     [readySelection],
@@ -689,11 +851,8 @@ export function useGloss() {
     }
     void perform(async () => {
       if (!bootstrap?.audio_ready)
-        throw new Error("Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env.");
-      if (!isReady(card))
-        throw new Error(
-          "Complete all word, definition, and example fields before generating audio.",
-        );
+        throw new Error(audioSetupHint(bootstrap?.audio_provider ?? "woof"));
+      if (!isReady(card)) throw new Error("Fill in and verify this card before recording audio.");
       const saved = dirty.has(card.id) ? await saveEdit(card) : card;
       const cached = saved.audio[kind];
       if (cached) {
@@ -723,6 +882,7 @@ export function useGloss() {
     cleanSnapshots.current.clear();
     setBootstrap(value);
     setCards(value.cards);
+    setRecovery(value.sync_recovery);
     setSettingsOpen(false);
     await refreshAnki();
   };
@@ -757,6 +917,8 @@ export function useGloss() {
     changeView,
     search,
     setSearch,
+    page,
+    setPage,
     settingsOpen,
     setSettingsOpen,
     setupOpen,
@@ -764,7 +926,6 @@ export function useGloss() {
     moveParent,
     setMoveParent,
     notice,
-    setNotice,
     error,
     setError,
     confirmCap,
@@ -776,18 +937,30 @@ export function useGloss() {
     conflicts,
     setConflicts,
     resolveConflicts,
+    syncIds: syncIds.current,
     refreshAnki,
     perform,
     saveCard,
     flush,
     changeCard,
     generate,
+    generationMode,
+    chooseGenerationMode,
+    manual,
+    manualError,
+    manualFocusCode,
+    wordInput,
+    startManual,
+    importManual,
+    closeManual,
     selection,
+    recovery,
     readySelection,
     visibleCards,
     audio,
     beginSync,
-    missing,
+    syncMissing,
+    discardRecovery,
     remove,
     retry,
     listen,

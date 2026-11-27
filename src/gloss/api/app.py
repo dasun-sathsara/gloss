@@ -3,6 +3,7 @@ import contextlib
 import logging
 import re
 import secrets
+import time
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 from pathlib import Path
@@ -10,24 +11,27 @@ from typing import Annotated, Any, Literal
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from gloss.anki.client import AnkiClient
 from gloss.anki.gateway import AnkiGateway
 from gloss.anki.templates import available_fonts
-from gloss.config import VOICES, Configuration, Preferences
+from gloss.config import VOICES, WOOF_VOICES, Configuration, Preferences
 from gloss.core.events import Job, Jobs
-from gloss.core.models import CLIP_KINDS, Card, ClipKind, Entry
-from gloss.core.orchestrator import Orchestrator, clip_key
+from gloss.core.manual import ManualRun
+from gloss.core.models import Card, ClipKind, Entry
+from gloss.core.orchestrator import Orchestrator
 from gloss.core.parsing import parse_entries
 from gloss.core.ports import ProviderError
 from gloss.library.store import Library
 from gloss.providers.openai_compat import ChatCompletionsLanguageModel
 from gloss.providers.vertex import VertexLanguageModel, VertexSynthesizer, make_client
 from gloss.providers.woof import WoofSynthesizer
+
+BOOTSTRAP_JSON = TypeAdapter(dict[str, Any])
 
 
 class Paste(BaseModel):
@@ -36,9 +40,18 @@ class Paste(BaseModel):
     confirm_over_cap: bool = False
 
 
+class ManualImport(BaseModel):
+    reply: str = Field(min_length=1, max_length=750_000)
+
+
 class Selection(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=1000)
     kind: ClipKind | None = None
+
+
+class ProfileSelection(Selection):
+    expected_profile: str | None = None
+    recovery_id: str | None = None
 
 
 class SyncSelection(Selection):
@@ -90,7 +103,7 @@ def create_app(
         return path == "/api/parse" or bool(re.fullmatch(r"/api/jobs/[^/]+/cancel", path))
 
     async def warm_text() -> None:
-        """Send one tiny completion so a cold router is ready before the user asks."""
+        """Probe the endpoint after the user opts into automatic generation."""
         current = asyncio.current_task()
         environment = configuration.environment
         if not environment.text_api_base or not environment.text_api_key:
@@ -125,7 +138,7 @@ def create_app(
                 return
             except httpx.HTTPError:
                 if warm_task is current:
-                    text_health.update(state="down", detail="The text endpoint did not answer.")
+                    text_health.update(state="down", detail="The text provider did not respond.")
                 return
             if 300 <= response.status_code < 400 and not attempt:
                 # The proxy redirects while the container wakes; try once more.
@@ -160,7 +173,6 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         nonlocal woof_synth
-        start_warm()
         yield
         if warm_task and not warm_task.done():
             warm_task.cancel()
@@ -241,23 +253,16 @@ def create_app(
     def selected(ids: list[str]) -> list[Card]:
         return [library.get(card_id) for card_id in dict.fromkeys(ids)]
 
-    def valid_audio(card: Card, clips_by_key: dict[str, str] | None = None) -> Card:
-        for kind in CLIP_KINDS:
-            current_file = card.audio.get(kind)
-            if not current_file:
-                card.audio.pop(kind, None)
-                continue
-            key = clip_key(configuration.preferences, card.clip_text(kind))
-            expected = clips_by_key.get(key) if clips_by_key is not None else library.clip(key)
-            if current_file != expected:
-                card.audio.pop(kind, None)
-        if card.synced_hash and card.content_hash() != card.synced_hash:
-            card.synced_hash = ""
-        return card
-
     def valid_cards(cards: list[Card]) -> list[Card]:
-        clips_by_key = library.clip_map()
-        return [valid_audio(card, clips_by_key) for card in cards]
+        files = library.clip_files()
+        for card in cards:
+            # Existing recordings belong to the card text, not the current engine or voice.
+            card.audio = {
+                kind: filename for kind, filename in card.audio.items() if filename in files
+            }
+            if card.synced_hash and card.content_hash() != card.synced_hash:
+                card.synced_hash = ""
+        return cards
 
     async def with_providers(job: Job, operation) -> None:
         nonlocal woof_synth
@@ -270,38 +275,48 @@ def create_app(
             await operation(job, DemoLanguageModel(), DemoSynthesizer(), preferences)
             return
         environment = configuration.environment
-        google = bool(environment.google_cloud_project)
-        client = make_client(configuration) if google else None
+        uses_google_text = job.kind != "audio" and not environment.text_api_base
+        uses_google_audio = preferences.audio_provider == "google" and (
+            job.kind == "audio" or preferences.auto_audio
+        )
+        client = (
+            make_client(configuration)
+            if environment.google_cloud_project and (uses_google_text or uses_google_audio)
+            else None
+        )
         text: VertexLanguageModel | ChatCompletionsLanguageModel | None = None
         synth: VertexSynthesizer | WoofSynthesizer | None = None
         cancelled = False
         try:
-            if environment.text_api_base:
-                text = ChatCompletionsLanguageModel(
-                    environment.text_api_base,
-                    environment.text_api_key,
-                    preferences,
-                    timeout=environment.text_timeout,
-                    client=http,
-                )
-            elif client:
-                text = VertexLanguageModel(client, preferences)
-            else:
-                raise ProviderError(
-                    "Add TEXT_API_BASE and TEXT_API_KEY, or the Google project and credentials, "
-                    "to the config .env.",
-                    fatal=True,
-                )
-            if environment.woof_model_dir:
-                if woof_synth is None:
-                    woof_synth = WoofSynthesizer(
-                        Path(environment.woof_model_dir), environment.woof_voice
+            if job.kind != "audio":
+                if environment.text_api_base:
+                    text = ChatCompletionsLanguageModel(
+                        environment.text_api_base,
+                        environment.text_api_key,
+                        preferences,
+                        timeout=environment.text_timeout,
+                        client=http,
                     )
+                elif client:
+                    text = VertexLanguageModel(client, preferences)
+                else:
+                    raise ProviderError(
+                        "Add TEXT_API_BASE and TEXT_API_KEY, or the Google project and "
+                        "credentials, to the config .env.",
+                        fatal=True,
+                    )
+            if preferences.audio_provider == "woof" and environment.woof_model_dir:
+                voice = configuration.woof_voice(preferences)
+                if woof_synth is not None and woof_synth.voice != voice:
+                    await woof_synth.aclose(wait=False)
+                    woof_synth = None
+                if woof_synth is None:
+                    woof_synth = WoofSynthesizer(Path(environment.woof_model_dir), voice)
                 synth = woof_synth
                 # Local clips cost nothing and answer to no quota; use every available core.
                 preferences.tts_rpm = 0
                 preferences.tts_concurrency = synth.workers
-            elif client:
+            elif uses_google_audio and client:
                 synth = VertexSynthesizer(client, preferences)
             await operation(job, text, synth, preferences)
         except asyncio.CancelledError:
@@ -319,7 +334,11 @@ def create_app(
 
     def audio_ready() -> bool:
         environment = configuration.environment
-        return demo or bool(environment.google_cloud_project) or bool(environment.woof_model_dir)
+        return demo or bool(
+            environment.woof_model_dir
+            if configuration.preferences.audio_provider == "woof"
+            else environment.google_cloud_project
+        )
 
     def text_ready() -> bool:
         environment = configuration.environment
@@ -354,17 +373,25 @@ def create_app(
             "text_health_detail": text_health["detail"],
         }
 
-    @app.get("/api/bootstrap")
+    @app.get("/api/bootstrap", response_class=JSONResponse)
     async def bootstrap():
         active = jobs.active
         cards = valid_cards(library.all())
         total = library.count()
+        manual = library.manual_run()
+        recovery = library.sync_recovery()
         environment = configuration.environment
-        return {
+        payload = {
+            "sync_recovery": recovery.status() if recovery else None,
             "settings": configuration.preferences,
-            "voices": [] if (not demo and environment.woof_model_dir) else VOICES,
+            "voices": VOICES if environment.google_cloud_project else [],
+            "woof_voices": WOOF_VOICES,
+            "woof_default_voice": configuration.woof_voice(),
+            "woof_configured": bool(environment.woof_model_dir),
+            "google_audio_available": bool(environment.google_cloud_project),
             "cards": cards,
             "card_count": total,
+            "manual": manual.status() if manual else None,
             "library_truncated": total > len(cards),
             "active_job": {"id": active.id, "kind": active.kind, "stage": active.stage}
             if active
@@ -380,45 +407,43 @@ def create_app(
             "text_health": text_health["state"],
             "text_health_detail": text_health["detail"],
             "audio_ready": audio_ready(),
-            "audio_provider": "demo"
-            if demo
-            else "woof"
-            if environment.woof_model_dir
-            else "google"
-            if environment.google_cloud_project
-            else "",
-            "audio_voice": environment.woof_voice
-            if environment.woof_model_dir
+            "audio_provider": "demo" if demo else configuration.preferences.audio_provider,
+            "audio_voice": configuration.woof_voice(configuration.preferences)
+            if configuration.preferences.audio_provider == "woof"
             else configuration.preferences.voice,
             "config_dir": str(configuration.directory),
             "demo": demo,
             "fonts_complete": "_StudioFeixenSansVariable.ttf"
             in available_fonts(configuration.directory / "fonts"),
         }
+        # Serialize the full library in one pass, including nested Pydantic models.
+        return Response(BOOTSTRAP_JSON.dump_json(payload), media_type="application/json")
 
     @app.put("/api/settings")
     async def settings(preferences: Preferences):
         idle()
         previous_text_model = configuration.preferences.text_model
+        if (
+            preferences.audio_provider == "google"
+            and not configuration.environment.google_cloud_project
+            and configuration.preferences.audio_provider != "google"
+        ):
+            raise ValueError("Configure a Google Cloud project before enabling Google audio.")
         configuration.save(preferences)
-        clips_by_key = library.clip_map()
-        changed: list[Card] = []
-        for card in library.all_unlimited():
-            old_audio = dict(card.audio)
-            old_hash = card.synced_hash
-            valid_audio(card, clips_by_key)
-            if card.audio != old_audio or card.synced_hash != old_hash:
-                changed.append(card)
-        if changed:
-            library.save_many(changed)
-        if configuration.preferences.text_model != previous_text_model:
+        if configuration.preferences.text_model != previous_text_model and warm_task is not None:
             start_warm()
         return configuration.preferences
+
+    @app.post("/api/text/warm")
+    async def warm_endpoint():
+        if text_health["state"] in {"off", "down"}:
+            start_warm()
+        return await health()
 
     @app.post("/api/parse")
     async def parse(paste: Paste):
         entries = parse_entries(paste.text)
-        count = sum(not entry.duplicate and not entry.warning for entry in entries)
+        count = sum(not entry.warning for entry in entries)
         return {
             "entries": entries,
             "count": count,
@@ -427,18 +452,55 @@ def create_app(
             "audio_calls": count * 4,
         }
 
+    @app.post("/api/manual")
+    async def start_manual(paste: Paste):
+        idle()
+        if library.manual_run() is not None:
+            raise HTTPException(409, "Finish or close the current manual run first.")
+        entries = [entry for entry in parse_entries(paste.text) if not entry.warning]
+        if not entries:
+            raise ValueError("Paste at least one word.")
+        if not paste.deck.startswith(configuration.preferences.deck_parent + "::"):
+            raise ValueError("Choose a subdeck inside your parent deck.")
+        run = ManualRun(
+            entries=entries,
+            deck=paste.deck,
+            order=int(time.time() * 1000) * 1000,
+            size=configuration.preferences.manual_batch_size,
+        )
+        library.save_manual(run)
+        return run.status()
+
+    @app.post("/api/manual/import")
+    async def import_manual(paste: ManualImport):
+        idle()
+        run = library.manual_run()
+        if run is None or not run.current:
+            raise HTTPException(409, "Start a manual batch before importing a reply.")
+        cards = run.import_cards(paste.reply)
+        run = run.advance(cards)
+        library.save_manual(run, cards)
+        return {"manual": run.status(), "cards": cards}
+
+    @app.delete("/api/manual/{code}")
+    async def close_manual(code: str):
+        idle()
+        run = library.manual_run()
+        if run is None or run.code != code:
+            raise HTTPException(409, "This manual run has changed. Refresh Gloss and try again.")
+        library.clear_manual()
+        return {"closed": True}
+
     @app.post("/api/generate")
     async def generate(paste: Paste):
         idle()
-        entries = [
-            entry
-            for entry in parse_entries(paste.text)
-            if not entry.duplicate and not entry.warning
-        ]
+        entries = [entry for entry in parse_entries(paste.text) if not entry.warning]
         if not entries:
             raise ValueError("Paste at least one word.")
         if len(entries) > configuration.preferences.word_cap and not paste.confirm_over_cap:
-            raise ValueError("This paste exceeds your word cap. Confirm the estimate to continue.")
+            raise ValueError(
+                "This list exceeds your word limit. Confirm the larger batch to continue."
+            )
 
         async def run(job: Job, model, synth, preferences):
             await write_cards(job, entries, paste.deck, model, synth, preferences)
@@ -470,6 +532,7 @@ def create_app(
         idle(during_audio=True)
         card = library.get(card_id)
         previous = card.base_identity()
+        previous_clips = {kind: card.clip_text(kind) for kind in card.audio}
         for key, value in edit.model_dump().items():
             setattr(card, key, value)
         if previous != card.base_identity():
@@ -480,7 +543,10 @@ def create_app(
         elif card.synced_hash and card.content_hash() != card.synced_hash:
             card.synced_hash = ""
         card.audio_errors.clear()
-        return library.save(valid_audio(card))
+        for kind, text in previous_clips.items():
+            if card.clip_text(kind) != text:
+                card.audio.pop(kind)
+        return library.save(valid_cards([card])[0])
 
     @app.delete("/api/cards/{card_id}")
     async def remove(card_id: str):
@@ -493,11 +559,15 @@ def create_app(
         idle()
         if not audio_ready():
             raise ValueError(
-                "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
+                "Set WOOF_MODEL_DIR in your .env file, then restart Gloss."
+                if configuration.preferences.audio_provider == "woof"
+                else "Set GOOGLE_CLOUD_PROJECT in your .env file, then restart Gloss."
             )
         cards = valid_cards(selected(selection.ids))
         if any(not card.ready() for card in cards):
-            raise ValueError("Finish or remove invalid cards before generating audio.")
+            raise ValueError(
+                "Fill in and verify these cards, or remove them before recording audio."
+            )
 
         async def run(job: Job, _model, synth, preferences):
             stats = await orchestrator.audio(job, cards, synth, preferences, selection.kind)
@@ -510,7 +580,7 @@ def create_app(
     async def batch_deck(selection: BatchDeck):
         idle()
         if not selection.deck.startswith(configuration.preferences.deck_parent + "::"):
-            raise ValueError("Choose a subdeck under the configured parent.")
+            raise ValueError("Choose a subdeck inside your parent deck.")
         cards = selected(selection.ids)
         for card in cards:
             card.deck = selection.deck
@@ -535,7 +605,7 @@ def create_app(
     async def cancel(job_id: str):
         job = jobs.get(job_id)
         if job.kind == "sync":
-            raise HTTPException(409, "Anki writes are finishing. Wait to avoid a partial write.")
+            raise HTTPException(409, "Wait for Gloss to finish saving the notes to Anki.")
         if job.task and not job.done:
             job.task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -557,20 +627,61 @@ def create_app(
         idle()
         return {"deck": await gateway.add_deck(configuration.preferences, name.name)}
 
-    @app.post("/api/anki/conflicts")
-    async def conflicts(selection: Selection):
+    def check_sync_scope(cards: list[Card], recovery_id: str | None):
+        recovery = library.sync_recovery()
+        if recovery is None:
+            if recovery_id is not None:
+                raise ValueError("This Anki retry is no longer pending. Refresh Gloss.")
+            return None
+        if recovery.id != recovery_id:
+            raise ValueError("Retry or discard the pending Anki save before starting a new one.")
+        if any(card.id not in recovery.decks for card in cards):
+            raise ValueError("Only cards left in the pending Anki save can be retried.")
+        if any(recovery.decks[card.id] != card.deck for card in cards):
+            raise ValueError("Restore the original decks before retrying.")
+        return recovery
+
+    async def sync_profile(expected: str | None) -> str:
+        profile = await gateway.client.call("getActiveProfile")
+        if expected and expected != profile:
+            raise ValueError("Switch back to the original Anki profile before retrying.")
+        return profile
+
+    @app.delete("/api/anki/recovery/{recovery_id}")
+    async def discard_recovery(recovery_id: str):
         idle()
-        return await gateway.conflicts(selected(selection.ids), configuration.preferences)
+        recovery = library.sync_recovery()
+        if recovery is None or recovery.id != recovery_id:
+            raise ValueError("This Anki retry is no longer pending. Refresh Gloss.")
+        library.save_sync_recovery(None)
+        sync_ticket.clear()
+        return {"discarded": True}
+
+    @app.post("/api/anki/conflicts")
+    async def conflicts(selection: ProfileSelection):
+        idle()
+        cards = selected(selection.ids)
+        recovery = check_sync_scope(cards, selection.recovery_id)
+        expected = recovery.profile if recovery else selection.expected_profile
+        if expected:
+            await sync_profile(expected)
+        return await gateway.conflicts(cards, configuration.preferences)
 
     @app.post("/api/anki/pull")
-    async def pull(selection: Selection):
+    async def pull(selection: ProfileSelection):
         idle()
-        selected(selection.ids)
-        profile = await gateway.client.call("getActiveProfile")
+        cards = selected(selection.ids)
+        recovery = check_sync_scope(cards, selection.recovery_id)
+        profile = await sync_profile(recovery.profile if recovery else selection.expected_profile)
         await gateway.client.call("sync")
         ticket = secrets.token_urlsafe(32)
         sync_ticket.clear()
-        sync_ticket.update(ticket=ticket, ids=sorted(set(selection.ids)), profile=profile)
+        sync_ticket.update(
+            ticket=ticket,
+            ids=sorted(set(selection.ids)),
+            profile=profile,
+            recovery_id=selection.recovery_id,
+        )
         return {"ticket": ticket, "profile": profile}
 
     @app.post("/api/anki/sync")
@@ -583,15 +694,18 @@ def create_app(
         ):
             raise ValueError("Start Anki sync and confirm it completed before sending notes.")
         cards = valid_cards(selected(selection.ids))
+        recovery = check_sync_scope(cards, sync_ticket["recovery_id"])
+        profile = await sync_profile(sync_ticket["profile"])
         preferences = configuration.preferences.model_copy(deep=True)
-        profile = sync_ticket["profile"]
         sync_ticket.clear()
         if cards:
             preferences.last_deck = cards[0].deck
             configuration.save(preferences)
         job = jobs.start(
             "sync",
-            lambda job: gateway.sync(job, cards, preferences, selection.allow_missing, profile),
+            lambda job: gateway.sync(
+                job, cards, preferences, selection.allow_missing, profile, recovery
+            ),
         )
         return {"id": job.id, "kind": job.kind, "stage": job.stage}
 

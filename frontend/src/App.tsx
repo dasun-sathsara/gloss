@@ -1,23 +1,33 @@
-import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
+import { useState } from "react";
 import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
 import { Choice } from "./components/Choice";
+import { ManualBatch, ManualStart } from "./components/ManualGeneration";
 import { Modal } from "./components/Modal";
+import { Notifications } from "./components/Notifications";
 import { Settings } from "./components/Settings";
 import { Spinner } from "./components/Spinner";
 import { Alert, AlertDescription } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./components/ui/collapsible";
 import { Field, FieldLabel } from "./components/ui/field";
 import { Input } from "./components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
-import { WordTable } from "./components/WordTable";
+import { WordTable, WORDS_PER_PAGE } from "./components/WordTable";
 import { useGloss } from "./hooks/useGloss";
-import { api, type Card, type Decision, type Job, normalizedText } from "./lib";
+import {
+  api,
+  audioSetupHint,
+  type Card,
+  type Decision,
+  type Job,
+  isReady,
+  normalizedText,
+} from "./lib";
 
 export default function App() {
   const g = useGloss();
+  const [confirmDiscardRetry, setConfirmDiscardRetry] = useState(false);
   const b = g.bootstrap;
   if (!b)
     return (
@@ -35,9 +45,9 @@ export default function App() {
   const audioReady = b.audio_ready;
   // Local audio is free, so a batch that costs words only should not quote dollars.
   const costNote = !audioReady
-    ? "Words generate without audio."
+    ? "Gloss will add the words without audio."
     : b.audio_provider === "woof"
-      ? "Local audio adds no speech cost."
+      ? "Woof records audio on your computer at no cost."
       : `Estimated cost with audio: $${(g.parsed?.estimate_usd ?? 0).toFixed(2)}.`;
   const parent = `${b.settings.deck_parent}::`;
   const names = g.anki.connected
@@ -55,10 +65,37 @@ export default function App() {
     label: value.startsWith(parent) ? value.slice(parent.length).replaceAll("::", " / ") : value,
     disabled: g.anki.connected && !names.includes(value),
   }));
+  const readyDecks = [...new Set(g.readySelection.map((card) => card.deck))];
+  const hasCards = g.view === "library" ? g.cards.length > 0 : g.batchIds.size > 0;
+  const recovery = g.recovery;
+  const remaining = recovery
+    ? recovery.ids.flatMap((id) => {
+        const card = g.cards.find((value) => value.id === id);
+        return card && card.decision !== "skip" ? [card] : [];
+      })
+    : [];
+  const recoveryProfileChanged =
+    !!recovery && !!g.anki.connected && recovery.profile !== g.anki.profile;
+  const retryCards = remaining.filter(isReady);
+  const recoveryDeckChanged =
+    !!recovery &&
+    retryCards.some(
+      (card) => card.deck !== recovery.decks[card.id] || !g.anki.decks.includes(card.deck),
+    );
+  const matchCount = g.visibleCards.length;
+  const pageCount = Math.ceil(matchCount / WORDS_PER_PAGE);
+  const page = Math.min(g.page, Math.max(0, pageCount - 1));
+  const pageStart = page * WORDS_PER_PAGE;
+  const hiddenCount =
+    g.selected.size - g.visibleCards.filter((card) => g.selected.has(card.id)).length;
   return (
     <div className="app-shell">
+      <a className="skip-workspace" href="#gloss-workspace">
+        Skip to workspace
+      </a>
       <header className="app-header">
         <a href="/" className="brand">
+          <img src="/favicon.svg" alt="" className="brand-mark" width={28} height={28} />
           Gloss
         </a>
         <Tabs value={g.view} onValueChange={(value) => g.changeView(value as "review" | "library")}>
@@ -76,6 +113,8 @@ export default function App() {
               g.setSetupOpen(true);
             }}
             disabled={g.busy}
+            className="anki-indicator"
+            data-anki-ready={g.anki.ready}
           >
             Anki {g.anki.connected ? (g.anki.ready ? "connected" : "setup needed") : "offline"}
           </Button>
@@ -92,8 +131,10 @@ export default function App() {
           </Button>
         </div>
       </header>
-      <main className="workspace">
-        {b.demo && <p className="demo-notice">Offline demo · Sample definitions and test tones</p>}
+      <main id="gloss-workspace" className="workspace" tabIndex={-1}>
+        {b.demo && (
+          <p className="demo-notice">Offline demo with sample definitions and test tones</p>
+        )}
         {b.library_truncated && (
           <Alert>
             <AlertDescription>
@@ -102,33 +143,6 @@ export default function App() {
               </p>
             </AlertDescription>
           </Alert>
-        )}
-        {!b.provider_ready && (
-          <Alert>
-            <AlertDescription>
-              <p>
-                Add a text endpoint as <code>TEXT_API_BASE</code> and <code>TEXT_API_KEY</code>, or
-                the Google project and credentials, to the <code>.env</code> in{" "}
-                <code>{b.config_dir}</code>, then restart Gloss.
-              </p>
-            </AlertDescription>
-          </Alert>
-        )}
-        {g.error && (
-          <Alert variant="destructive" className="message">
-            <AlertDescription>{g.error}</AlertDescription>
-            <Button variant="ghost" size="sm" onClick={() => g.setError("")}>
-              Dismiss
-            </Button>
-          </Alert>
-        )}
-        {g.notice && (
-          <div className="message notice" role="status">
-            <span>{g.notice}</span>
-            <Button variant="ghost" size="sm" onClick={() => g.setNotice("")}>
-              Dismiss
-            </Button>
-          </div>
         )}
         <div className={g.view === "review" ? "batch-layout" : "library-layout"}>
           {g.view === "review" && (
@@ -141,7 +155,7 @@ export default function App() {
                 value={g.deck}
                 options={options}
                 onChange={g.chooseDeck}
-                disabled={g.busy}
+                disabled={g.busy || !!g.manual}
                 id="batch-deck"
               />
               {deckMissing && (
@@ -149,106 +163,138 @@ export default function App() {
                   This deck is missing in Anki. Choose an existing subdeck.
                 </p>
               )}
-              <div className="word-input-group">
-                <Field className="gap-1.5">
-                  <FieldLabel htmlFor="words-input">Words</FieldLabel>
-                  <Textarea
-                    id="words-input"
-                    placeholder="Paste words here, one per line"
-                    value={g.text}
-                    onChange={(event) => g.setText(event.target.value)}
-                    disabled={g.busy}
-                    maxLength={20000}
-                    rows={8}
-                    onKeyDown={(event) => {
-                      if (
-                        (event.ctrlKey || event.metaKey) &&
-                        event.key === "Enter" &&
-                        g.parsed?.count &&
-                        !g.busy &&
-                        b.provider_ready &&
-                        g.deck &&
-                        !deckMissing
-                      ) {
-                        event.preventDefault();
-                        void g.generate();
-                      }
-                    }}
-                  />
-                </Field>
-                <Collapsible>
-                  <CollapsibleTrigger asChild>
-                    <Button variant="ghost" size="sm" className="format-trigger">
-                      Input format
-                      <CaretDownIcon aria-hidden="true" />
-                    </Button>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent>
-                    <p className="help">
-                      Separate words with new lines, commas, or semicolons. Add context as{" "}
-                      <code>word: hint</code>.
-                    </p>
-                  </CollapsibleContent>
-                </Collapsible>
-                {b.text_provider === "endpoint" && b.text_health !== "off" && (
-                  <p className={`endpoint-status ${b.text_health}`} role="status">
-                    <span className="endpoint-dot" aria-hidden="true" />
-                    {b.text_health === "ready"
-                      ? "Text endpoint ready"
-                      : b.text_health === "warming"
-                        ? "Warming up the text endpoint"
-                        : b.text_health_detail || "Text endpoint unreachable"}
-                  </p>
-                )}
-                {g.parsed && (
-                  <div className="estimate" role="status">
-                    <span>
-                      {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
-                    </span>
-                    {audioReady ? (
-                      <span>
-                        {b.audio_provider === "woof"
-                          ? "audio local"
-                          : `~$${g.parsed.estimate_usd.toFixed(2)} with audio`}
-                      </span>
-                    ) : (
-                      <span>text only, audio off</span>
-                    )}
-                  </div>
-                )}
-                {(() => {
-                  const issues =
-                    g.parsed?.entries.filter((entry) => entry.duplicate || entry.warning) ?? [];
-                  if (!issues.length) return null;
-                  return (
-                    <>
-                      {issues.slice(0, 5).map((entry) => {
-                        const label = entry.word
-                          ? `${entry.word.slice(0, 40)}${entry.word.length > 40 ? "…" : ""}: `
-                          : "";
-                        return (
-                          <p className="help" key={entry.index}>
-                            {label}
-                            {entry.warning || "Repeated in this batch"}
-                          </p>
-                        );
-                      })}
-                      {issues.length > 5 && (
-                        <p className="help">+{issues.length - 5} more warnings or duplicates</p>
+              {g.manual ? (
+                <ManualBatch
+                  key={g.manual.code}
+                  run={g.manual}
+                  busy={g.busy}
+                  error={g.manualError}
+                  focusAction={g.manual.code === g.manualFocusCode}
+                  onImport={g.importManual}
+                  onClose={g.closeManual}
+                />
+              ) : (
+                <>
+                  <div className="word-input-group">
+                    <Field className="gap-1.5">
+                      <FieldLabel htmlFor="words-input">Words</FieldLabel>
+                      <Textarea
+                        ref={g.wordInput}
+                        id="words-input"
+                        placeholder={"curious\npatient: willing to wait"}
+                        title="Separate entries with line breaks, commas, or semicolons. Put hints after a colon."
+                        value={g.text}
+                        onChange={(event) => g.setText(event.target.value)}
+                        disabled={g.busy}
+                        maxLength={20000}
+                        rows={8}
+                        onKeyDown={(event) => {
+                          if (
+                            (event.ctrlKey || event.metaKey) &&
+                            event.key === "Enter" &&
+                            g.parsed?.count &&
+                            !g.busy &&
+                            g.generationMode === "api" &&
+                            b.provider_ready &&
+                            g.deck &&
+                            !deckMissing
+                          ) {
+                            event.preventDefault();
+                            void g.generate();
+                          }
+                        }}
+                      />
+                    </Field>
+                    {g.generationMode === "api" &&
+                      b.text_provider === "endpoint" &&
+                      b.text_health !== "off" && (
+                        <p className={`endpoint-status ${b.text_health}`} role="status">
+                          <span className="endpoint-dot" aria-hidden="true" />
+                          {b.text_health === "ready"
+                            ? "Text provider is ready"
+                            : b.text_health === "warming"
+                              ? "Connecting to the text provider"
+                              : b.text_health_detail || "Could not reach the text provider"}
+                        </p>
                       )}
-                    </>
-                  );
-                })()}
-              </div>
-              <Button
-                className="generate-button"
-                disabled={g.busy || !g.parsed?.count || !b.provider_ready || !g.deck || deckMissing}
-                aria-busy={g.job?.kind === "text" || undefined}
-                onClick={() => g.generate()}
-              >
-                {g.job?.kind === "text" && <Spinner />}
-                {g.job?.kind === "text" ? "Generating…" : "Generate"}
-              </Button>
+                    {g.parsed && (
+                      <div className="estimate" role="status">
+                        <span>
+                          {g.parsed.count} {g.parsed.count === 1 ? "word" : "words"}
+                        </span>
+                        {g.generationMode === "api" &&
+                          audioReady &&
+                          b.audio_provider === "google" && (
+                            <span>~${g.parsed.estimate_usd.toFixed(2)} USD with audio</span>
+                          )}
+                      </div>
+                    )}
+                    {(() => {
+                      const issues =
+                        g.parsed?.entries.filter((entry) => entry.duplicate || entry.warning) ?? [];
+                      if (!issues.length) return null;
+                      return (
+                        <>
+                          {issues.some((entry) => entry.duplicate) && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={g.busy}
+                              onClick={() =>
+                                g.setText(
+                                  g
+                                    .parsed!.entries.filter((entry) => !entry.duplicate)
+                                    .map(
+                                      (entry) => entry.word + (entry.hint ? ": " + entry.hint : ""),
+                                    )
+                                    .join("\n"),
+                                )
+                              }
+                            >
+                              Remove duplicates
+                            </Button>
+                          )}
+                          {issues.slice(0, 5).map((entry) => {
+                            const label = entry.word
+                              ? `${entry.word.slice(0, 40)}${entry.word.length > 40 ? "…" : ""}: `
+                              : "";
+                            return (
+                              <p className="help" key={entry.index}>
+                                {label}
+                                {entry.warning || "Duplicate entry"}
+                              </p>
+                            );
+                          })}
+                          {issues.length > 5 && (
+                            <p className="help">+{issues.length - 5} more warnings or duplicates</p>
+                          )}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  {g.generationMode === "manual" ? (
+                    <ManualStart
+                      size={b.settings.manual_batch_size}
+                      wordCount={g.parsed?.count ?? 0}
+                      busy={g.busy}
+                      disabled={!g.parsed?.count || !g.deck || deckMissing}
+                      onStart={g.startManual}
+                    />
+                  ) : (
+                    <Button
+                      className="generate-button"
+                      disabled={
+                        g.busy || !g.parsed?.count || !b.provider_ready || !g.deck || deckMissing
+                      }
+                      aria-busy={g.job?.kind === "text" || undefined}
+                      onClick={() => g.generate()}
+                    >
+                      {g.job?.kind === "text" && <Spinner />}
+                      {g.job?.kind === "text" ? "Generating…" : "Generate"}
+                    </Button>
+                  )}
+                </>
+              )}
             </section>
           )}
           <section className="review-section" aria-labelledby="review-heading">
@@ -257,65 +303,159 @@ export default function App() {
                 {g.view === "review" ? "Words" : "Library"}
                 <span className="word-count">{g.visibleCards.length}</span>
               </h2>
-              <Input
-                className="search"
-                aria-label="Search words"
-                placeholder="Search words"
-                value={g.search}
-                onChange={(event) => g.setSearch(event.target.value)}
-              />
+              {hasCards && (
+                <Input
+                  className="search"
+                  aria-label="Search words"
+                  placeholder="Search words"
+                  value={g.search}
+                  onChange={(event) => g.setSearch(event.target.value)}
+                />
+              )}
             </div>
-            <div className="review-toolbar">
-              <span className="selection-count">{g.selected.size} selected</span>
-              <div className="bulk-actions">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={g.busy || !g.missingCount || !audioReady}
-                  title={
-                    !audioReady
-                      ? "Audio needs a Google Cloud project or WOOF_MODEL_DIR in the config .env."
-                      : g.readySelection.length && !g.missingCount
-                        ? "Audio is ready for the selected words."
-                        : undefined
-                  }
-                  className="batch-action"
-                  onClick={g.audio}
-                >
-                  Prepare audio
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={
-                    g.busy ||
-                    !g.readySelection.length ||
-                    !g.anki.ready ||
-                    (g.view === "review" && deckMissing)
-                  }
-                  title={
-                    !g.anki.connected
-                      ? "Open Anki with AnkiConnect enabled to sync."
-                      : !g.anki.ready
-                        ? "Open Anki in the header and choose Set up Anki first."
-                        : g.view === "review" && deckMissing
-                          ? "Choose an existing Anki subdeck before syncing."
-                          : undefined
-                  }
-                  className="batch-action"
-                  onClick={g.beginSync}
-                >
-                  Sync to Anki
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  disabled={g.editLocked || !g.selected.size}
-                  onClick={() => g.setRemoveIds([...g.selected])}
-                >
-                  Remove selected
-                </Button>
+            {hasCards && (
+              <>
+                {hiddenCount > 0 && (
+                  <div className="selection-warning">
+                    <span>
+                      This filter hides {hiddenCount} selected{" "}
+                      {hiddenCount === 1 ? "card" : "cards"}. Actions still include them.
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={g.busy}
+                      onClick={() => g.setSelected(new Set(g.visibleCards.map((card) => card.id)))}
+                    >
+                      Select matching words
+                    </Button>
+                  </div>
+                )}
+                <div className="review-toolbar">
+                  <span className="selection-count">{g.selected.size} selected</span>
+                  <div className="bulk-actions">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={g.busy || !g.missingCount || !audioReady}
+                      title={
+                        !audioReady
+                          ? audioSetupHint(b.audio_provider)
+                          : g.readySelection.length && !g.missingCount
+                            ? "The selected cards already have audio."
+                            : undefined
+                      }
+                      className="batch-action"
+                      onClick={g.audio}
+                    >
+                      Prepare audio
+                    </Button>
+                    <Button
+                      size="sm"
+                      disabled={
+                        g.busy ||
+                        !g.readySelection.length ||
+                        !!recovery ||
+                        !g.anki.ready ||
+                        (g.view === "review" && deckMissing)
+                      }
+                      title={
+                        recovery
+                          ? "Retry or discard the pending Anki save first."
+                          : !g.anki.connected
+                            ? "Open Anki with AnkiConnect enabled."
+                            : !g.anki.ready
+                              ? "Choose Set up Anki in the Anki dialog."
+                              : g.view === "review" && deckMissing
+                                ? "Choose an existing Anki subdeck before syncing."
+                                : undefined
+                      }
+                      className="batch-action"
+                      onClick={() => g.beginSync()}
+                    >
+                      Sync to Anki
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={g.editLocked || !g.selected.size}
+                      onClick={() => g.setRemoveIds([...g.selected])}
+                    >
+                      Remove selected
+                    </Button>
+                  </div>
+                </div>
+                {(g.readySelection.length > 0 || !g.anki.connected) && (
+                  <div className="review-meta">
+                    {g.readySelection.length > 0 && (
+                      <p className="help">
+                        {g.readySelection.length} {g.readySelection.length === 1 ? "card" : "cards"}{" "}
+                        ready for Anki. {readyDecks.length === 1 ? "Deck" : "Decks"}:{" "}
+                        {readyDecks.join(", ")}.
+                      </p>
+                    )}
+                    {!g.anki.connected && (
+                      <div>
+                        <Button variant="ghost" size="sm" onClick={() => g.setSetupOpen(true)}>
+                          Anki help
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+            {recovery && (
+              <div className="notice message anki-recovery">
+                <div>
+                  <p>
+                    Gloss saved {recovery.saved} {recovery.saved === 1 ? "card" : "cards"} in Anki
+                    under {JSON.stringify(recovery.profile)}.{" "}
+                    {remaining.length ? "Cards left to save:" : "No remaining cards to retry."}
+                  </p>
+                  <ul>
+                    {remaining.map((card) => (
+                      <li key={card.id}>
+                        {card.word} in {recovery.decks[card.id]}.
+                        {card.id === recovery.ids[0] && " Gloss stopped here."}
+                        {!isReady(card) && " Needs edits."}
+                      </li>
+                    ))}
+                  </ul>
+                  {recoveryProfileChanged && (
+                    <p className="help">
+                      Switch to {recovery.profile} in Anki, then choose Refresh in the Anki dialog.
+                    </p>
+                  )}
+                  {!recoveryProfileChanged && g.anki.ready && recoveryDeckChanged && (
+                    <p className="help">Restore the original decks before retrying.</p>
+                  )}
+                </div>
+                <div className="recovery-actions">
+                  <Button
+                    variant="ghost"
+                    disabled={g.busy}
+                    onClick={() => setConfirmDiscardRetry(true)}
+                  >
+                    Discard retry
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={
+                      g.busy ||
+                      !g.anki.ready ||
+                      !retryCards.length ||
+                      retryCards.length !== remaining.length ||
+                      recoveryProfileChanged ||
+                      recoveryDeckChanged
+                    }
+                    onClick={() => g.beginSync(retryCards.map((card) => card.id))}
+                  >
+                    Retry remaining cards
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
             {g.job && (
               <div
                 className="job-status"
@@ -334,9 +474,6 @@ export default function App() {
                         : "Writing words…"}
                     {g.progress?.total ? ` ${g.progress.completed}/${g.progress.total}` : ""}
                   </span>
-                  {g.audioRunning && (
-                    <span className="job-hint">You can edit words while audio records.</span>
-                  )}
                 </span>
                 {g.job.kind !== "sync" && (
                   <Button
@@ -361,15 +498,43 @@ export default function App() {
                 ) : null}
               </div>
             )}
-            {g.visibleCards.length ? (
+            {pageCount > 1 && (
+              <nav className="word-pages" aria-label="Word results pages">
+                <span role="status">
+                  Showing {pageStart + 1}–{Math.min(pageStart + WORDS_PER_PAGE, matchCount)} of{" "}
+                  {matchCount} words
+                </span>
+                <div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 0}
+                    onClick={() => g.setPage(page - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page + 1 === pageCount}
+                    onClick={() => g.setPage(page + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </nav>
+            )}
+            {matchCount ? (
               <WordTable
                 cards={g.visibleCards}
+                pageStart={pageStart}
                 selected={g.selected}
                 dirty={g.dirty}
                 disabled={g.busy}
                 editDisabled={g.editLocked}
                 jobActive={!!g.job}
                 audioReady={audioReady}
+                audioHelp={audioSetupHint(b.audio_provider)}
                 library={g.view === "library"}
                 playing={g.playing}
                 onSelect={(id) =>
@@ -408,7 +573,7 @@ export default function App() {
                 }
                 onDiscard={g.discardCard}
                 onRemove={(id) => g.setRemoveIds([id])}
-                onRetry={g.retry}
+                onRetry={g.generationMode === "api" && b.provider_ready ? g.retry : undefined}
                 onListen={g.listen}
                 onStopAudio={g.stopAudio}
               />
@@ -433,15 +598,23 @@ export default function App() {
       </main>
       <Modal title="Settings" open={g.settingsOpen} onOpenChange={g.setSettingsOpen}>
         <Settings
+          mode={g.generationMode}
+          providerReady={b.provider_ready}
+          manualActive={!!g.manual}
           settings={b.settings}
           voices={b.voices}
-          audioProvider={b.audio_provider}
-          audioVoice={b.audio_voice}
+          woofVoices={b.woof_voices}
+          woofDefaultVoice={b.woof_default_voice}
+          woofConfigured={b.woof_configured}
+          googleAudioAvailable={b.google_audio_available}
+          demo={b.demo}
           configDir={b.config_dir}
           anki={g.anki}
           busy={g.busy}
-          audioReady={audioReady}
-          onSave={g.saveSettings}
+          onSave={async (preferences, mode) => {
+            await g.saveSettings(preferences);
+            if (mode !== g.generationMode) g.chooseGenerationMode(mode);
+          }}
           onAddDeck={async (name) => {
             await api("/anki/decks", "POST", { name });
             await g.refreshAnki();
@@ -469,8 +642,8 @@ export default function App() {
           </p>
         ) : (
           <p>
-            Profile: {g.anki.profile}. Setup creates {b.settings.deck_parent} and its starting
-            subdecks, and installs the {b.settings.note_type} note type.
+            Anki is using the {g.anki.profile} profile. Set up Anki to create the{}
+            {b.settings.deck_parent} deck, its subdecks, and the {b.settings.note_type} note type.
           </p>
         )}
         {g.anki.warnings?.map((warning) => (
@@ -489,9 +662,6 @@ export default function App() {
               Move {g.anki.parent_cards} parent-deck cards into {b.settings.deck_default}
             </FieldLabel>
           </Field>
-        )}
-        {!b.fonts_complete && (
-          <p className="help">Add your licensed Studio Feixen Sans font to use it in Anki.</p>
         )}
         <div className="dialog-footer">
           <Button
@@ -528,9 +698,9 @@ export default function App() {
       >
         <p>
           {g.removeIds.length === 1
-            ? `“${removeLabel(g.cards, g.removeIds[0])}” will be deleted from Gloss, with its edits.`
-            : `${g.removeIds.length} words will be deleted from Gloss, with their edits.`}{" "}
-          Notes already in Anki stay in Anki.
+            ? `Gloss will delete "${removeLabel(g.cards, g.removeIds[0])}" and its edits.`
+            : `Gloss will delete ${g.removeIds.length} words and their edits.`}{" "}
+          This does not delete notes from Anki.
         </p>
         <div className="dialog-footer">
           <Button variant="outline" onClick={() => g.setRemoveIds([])}>
@@ -547,7 +717,7 @@ export default function App() {
       </Modal>
       <Modal title="Generate a larger batch?" open={g.confirmCap} onOpenChange={g.setConfirmCap}>
         <p>
-          {g.parsed?.count} words exceeds your cap of {b.settings.word_cap}. {costNote}
+          You entered {g.parsed?.count} words. Your word limit is {b.settings.word_cap}. {costNote}
         </p>
         <div className="dialog-footer">
           <Button variant="outline" onClick={() => g.setConfirmCap(false)}>
@@ -559,6 +729,28 @@ export default function App() {
         </div>
       </Modal>
       <Modal
+        title="Discard this Anki retry?"
+        open={confirmDiscardRetry}
+        onOpenChange={setConfirmDiscardRetry}
+      >
+        <p>Cards already saved to Anki stay there. Cards in Gloss stay in your library.</p>
+        <div className="dialog-footer">
+          <Button variant="outline" onClick={() => setConfirmDiscardRetry(false)}>
+            Keep retry
+          </Button>
+          <Button
+            variant="destructive"
+            disabled={g.busy}
+            onClick={() => {
+              setConfirmDiscardRetry(false);
+              void g.discardRecovery();
+            }}
+          >
+            Discard retry
+          </Button>
+        </div>
+      </Modal>
+      <Modal
         title="Finish syncing in Anki"
         open={!!g.syncDialog}
         onOpenChange={(open) => {
@@ -566,22 +758,30 @@ export default function App() {
         }}
       >
         <p>
-          Wait for syncing to finish in profile {g.syncDialog?.profile}. Resolve any full upload or
-          download prompt in Anki before continuing.
+          Send {g.syncDialog?.ids.length} {g.syncDialog?.ids.length === 1 ? "card" : "cards"} to{" "}
+          {[
+            ...new Set(
+              g.cards
+                .filter((card) => g.syncDialog?.ids.includes(card.id))
+                .map((card) => card.deck),
+            ),
+          ].join(", ")}
+          . Wait for Anki to finish syncing the {g.syncDialog?.profile} profile before you save. If
+          Anki asks for a full upload or download, finish it there first.
         </p>
         {g.error && (
           <Alert variant="destructive" className="message">
             <AlertDescription>{g.error}</AlertDescription>
           </Alert>
         )}
-        {g.missing && (
+        {g.syncMissing && (
           <Field orientation="horizontal">
             <Checkbox
               id="allow-missing"
               checked={g.allowMissing}
               onCheckedChange={(checked) => g.setAllowMissing(checked === true)}
             />
-            <FieldLabel htmlFor="allow-missing">Sync with missing audio</FieldLabel>
+            <FieldLabel htmlFor="allow-missing">Save without all audio</FieldLabel>
           </Field>
         )}
         <div className="dialog-footer">
@@ -589,7 +789,7 @@ export default function App() {
             Cancel
           </Button>
           <Button
-            disabled={g.busy || (g.missing && !g.allowMissing)}
+            disabled={g.busy || (g.syncMissing && !g.allowMissing)}
             onClick={() =>
               g.perform(async () => {
                 if (!g.syncDialog) return;
@@ -603,7 +803,7 @@ export default function App() {
               })
             }
           >
-            Sync finished · Save notes
+            Save notes to Anki
           </Button>
         </div>
       </Modal>
@@ -642,7 +842,9 @@ export default function App() {
           }
           const groups = [...grouped.values()];
           const keyCounts = new Map<string, number>();
-          for (const card of g.readySelection) {
+          for (const card of g.cards.filter(
+            (card) => g.syncIds.includes(card.id) && isReady(card) && card.decision !== "skip",
+          )) {
             if (card.decision === "keep_both") continue;
             const key = `${normalizedText(card.word)}\0${normalizedText(card.pos)}`;
             keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
@@ -692,8 +894,8 @@ export default function App() {
               </div>
               {hasUnresolvedBatchCollision && (
                 <p className="text-destructive help">
-                  Two words in this batch still share one Anki note. Choose Keep both meanings or
-                  Skip for at least one of them.
+                  These words still point to the same Anki note. For at least one word, choose Keep
+                  both meanings or Skip this word.
                 </p>
               )}
               <div className="dialog-footer">
@@ -708,6 +910,12 @@ export default function App() {
           );
         })()}
       </Modal>
+      <Notifications
+        notice={g.notice}
+        error={g.error}
+        inlineError={g.setupOpen || !!g.syncDialog || g.conflicts.length > 0}
+        theme={b.settings.theme}
+      />
     </div>
   );
 }

@@ -88,6 +88,7 @@ class GeneratedBatchPayload(BaseModel):
 class Card(BaseModel):
     id: str = Field(default_factory=lambda: uuid4().hex)
     source_word: str = ""
+    manual: bool = False
     hint: str = ""
     word: str = Field(default="", max_length=120)
     pos: str = Field(default="", max_length=60)

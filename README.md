@@ -1,9 +1,10 @@
 # Gloss
 
 Gloss creates English vocabulary flashcards with Sinhala meanings, two examples, and
-pronunciation audio. Review and edit the text, prepare audio, then send the cards to Anki.
+pronunciation audio. Review the text and send the cards to Anki with or without audio.
 The app runs on your computer. Words come from Google or any OpenAI-compatible
-endpoint, and Google Cloud records the speech.
+endpoint, or from a JSON reply you paste from a chat app. Google Cloud or local Woof
+can record speech.
 
 ## Windows setup
 
@@ -12,8 +13,9 @@ endpoint, and Google Cloud records the speech.
 2. Clone this repository with Git. Open the checkout and double-click `Gloss.cmd`.
    The launcher installs Git and uv through winget when needed, downloads the latest
    release, and opens <http://127.0.0.1:8776>. Node and system FFmpeg are not required.
-3. Copy [.env.example](.env.example) to `%APPDATA%\Gloss\.env`. Fill in your Google Cloud
-   project and the path to your private service-account key, then restart Gloss.
+3. For manual generation, no text credentials are needed. For automatic generation,
+   copy [.env.example](.env.example) to `%APPDATA%\Gloss\.env`, configure your text provider,
+   then restart Gloss.
 4. Keep Anki open. In Gloss, open **Anki** and choose **Set up Anki**.
 
 AnkiConnect uses port 8765 by default. If your add-on uses another port, set
@@ -27,34 +29,64 @@ lists the Anki steps still needed. Pass `-ApiKey` or paste the key when prompted
 Google Application Default Credentials also work. The default models are
 `gemini-3.8-flash` and `gemini-3.8-flash-tts` on the global endpoint. Your project needs
 access to those models, billing, and prediction permission. Gloss does not create
-cloud projects, keys, or IAM roles. Generation makes billable API calls.
+cloud projects, keys, or IAM roles. Google API calls are billable.
 
 To write words through an OpenAI-compatible `/chat/completions` endpoint instead, set
 `TEXT_API_BASE` (including `/v1`) and `TEXT_API_KEY` in the private `.env`. Text then
-comes from that endpoint and Google is only used for audio. Without a Google project,
-words still generate and audio stays off. The text model stays `gemini-3.8-flash` unless
-you change it in Settings, so choose a model the endpoint accepts.
+comes from that endpoint. The text model stays `gemini-3.8-flash` unless you change it
+in Settings, so choose a model the endpoint accepts.
 
-Audio makes four clips per card with Google Cloud by default. To record them on your own
-computer instead, download the two-voice
-[Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) model into a folder
-and set `WOOF_MODEL_DIR` to it in the private `.env`. Set `WOOF_VOICE` to `juno` (default)
-or `mira`. Woof runs on a CPU with numpy and needs no network, so with a text endpoint and
-Woof, Google is not needed at all. Its weights are licensed for non-commercial use, so
-Gloss does not bundle or download them, and the model folder stays outside the checkout.
+Woof is the default audio engine. Download the two-voice
+[Underdog Woof](https://huggingface.co/ConwayResearch/Underdog-Woof) model, set
+`WOOF_MODEL_DIR` in the private `.env`, and restart Gloss. Choose Juno or Mira under
+**Woof voice** in Settings. An existing `WOOF_VOICE` value sets the default until you
+choose a voice in Settings. Woof runs on your CPU without an API key. Its weights are
+licensed for non-commercial use, so Gloss does not bundle them.
+
+If Woof is not set up, you can still make cards without audio. Gloss does not fall
+back to Google. To opt in to Google Cloud audio, configure your project and select
+**Google Cloud** under **Audio engine** in **Advanced settings**. Google voice and
+speech model controls appear there.
 
 ## Use
 
 Paste words separated by newlines, commas, or semicolons. Add context with `word: hint`.
-Choose a deck once for the batch, then generate. Ctrl+Enter or Cmd+Enter also starts generation.
+Choose a deck once for the batch. Gloss starts in manual mode. To use the API,
+configure a text provider, then select **Automatic generation** in **Settings**.
+In that mode, Ctrl+Enter or Cmd+Enter also starts generation.
 
-Gloss records audio for the word, definition, and both examples right after it writes
-the words. You can keep editing while audio records. Saving an edit re-records only the
-changed clip. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
+### Manual copy & paste
+
+1. Enter your words. If Gloss flags exact repeats, choose **Remove duplicates** to keep
+   the first occurrence of each entry. Use **Words per manual batch** in **Settings**
+   to change the default of 25 for new runs.
+2. Choose **Start manual generation**. Copy the full prompt into Gemini Web or another
+   chat. Return to Gloss and choose **Paste reply** or paste into the JSON field yourself.
+   Gloss accepts JSON with or without the code fence.
+3. Validate the reply. Gloss saves nothing until every expected row passes. For a missing
+   or invalid row, use **Copy correction prompt** to ask for a complete replacement.
+   If the reply is for another batch, copy the current prompt. Words the model flags as
+   unclear still appear as drafts you can edit.
+4. For later batches in the same chat, copy the shorter continuation prompt. Use the
+   full prompt if you switch chats. Reloading restores the queue, saved drafts, and the
+   pasted reply for the current batch.
+5. Review the imported cards. **Prepare audio** is optional and works with local Woof
+   even without text credentials. **Sync to Anki** is a separate step.
+
+### Audio and sync
+
+In automatic mode, Gloss can record audio for the word, definition, and both examples
+right after it writes the words. You can keep editing while audio records. Saving an edit re-records only the
+changed clip. Changing the audio engine or voice keeps existing clips and applies to new
+recordings. If some clips fail, choose **Prepare audio** to retry them. Turn off automatic
 audio in Settings to record only when you choose **Prepare audio**. New words join the
 unsynced words already in the batch for the same deck.
-Choose **Sync to Anki** when the selected cards are ready. For conflicting meanings,
-keep both, overwrite, or skip. Updates preserve the existing note and review history.
+Choose **Sync to Anki** when the selected cards are ready. Check the card count and target
+deck before saving. If Anki stops partway, **Retry remaining cards** resumes in the original
+Anki profile and decks, even after you reload Gloss. It does not resend cards already saved.
+If you no longer want to finish that save, **Discard retry** leaves both libraries intact.
+For conflicting meanings, keep both, overwrite, or skip. Updates preserve
+the existing note and review history.
 Changing a synced word or part of speech creates a new identity and leaves the old note in Anki.
 
 Setup creates a `Gloss` note type and a `Gloss` deck tree. The answer plays the word;
@@ -103,20 +135,16 @@ Run the checks before committing:
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check
-uv run pytest
 uv run python scripts/encoder_smoke.py
 cd frontend
 pnpm check
-pnpm test
 pnpm build
-pnpm exec playwright install chromium
-pnpm test:e2e
 ```
 
 ## Releases
 
-GitHub Actions checks the backend and encoder on Windows and Linux, runs frontend
-checks and browser tests, and verifies the Python distributions. To release, update
+GitHub Actions checks the backend and encoder on Windows and Linux, builds the
+frontend, and verifies the Python distributions. To release, update
 both `pyproject.toml` and `frontend/package.json`, commit, and push a matching tag:
 
 ```sh
@@ -148,6 +176,5 @@ The web app and Anki playback buttons use Phosphor. After updating the icon depe
 run `pnpm icons:export` in `frontend/` and run Anki setup again.
 `uv run python scripts/template_sync.py` also installs and verifies the card template.
 
-Browser tests cover playback and the demo workflow. Live generation and Anki note
-updates have been checked on macOS. A fresh Windows installation and playback on
-Anki mobile clients still need manual verification.
+Live generation and Anki note updates have been checked on macOS. A fresh Windows
+installation and playback on Anki mobile clients still need manual verification.

@@ -6,6 +6,8 @@ import { Checkbox } from "./ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./ui/table";
 import { WordEditor } from "./WordEditor";
 
+export const WORDS_PER_PAGE = 100;
+
 function AnkiStatus({ card, dirty }: { card: Card; dirty: boolean }) {
   if (dirty) return <span className="draft-label unsaved-label">Unsaved</span>;
   if (card.decision === "skip") return <span className="draft-label">Skipped</span>;
@@ -23,7 +25,7 @@ function AnkiStatus({ card, dirty }: { card: Card; dirty: boolean }) {
       </Badge>
     );
   }
-  return <span className="draft-label">Draft</span>;
+  return <span className="draft-label">{isReady(card) ? "Local draft" : "Needs edits"}</span>;
 }
 
 const clipNames: Record<Clip, string> = {
@@ -66,12 +68,14 @@ function AudioCell({ card }: { card: Card }) {
 
 export function WordTable({
   cards,
+  pageStart,
   selected,
   dirty,
   disabled,
   editDisabled,
   jobActive,
   audioReady,
+  audioHelp,
   library,
   playing,
   onSelect,
@@ -86,12 +90,14 @@ export function WordTable({
   onStopAudio,
 }: {
   cards: Card[];
+  pageStart: number;
   selected: Set<string>;
   dirty: Set<string>;
   disabled: boolean;
   editDisabled: boolean;
   jobActive: boolean;
   audioReady: boolean;
+  audioHelp: string;
   library: boolean;
   playing: { id: string; kind: Clip } | null;
   onSelect: (id: string) => void;
@@ -101,7 +107,7 @@ export function WordTable({
   onSave: (card: Card) => void;
   onDiscard: (id: string) => void;
   onRemove: (id: string) => void;
-  onRetry: (card: Card) => void;
+  onRetry?: (card: Card) => void;
   onListen: (card: Card, kind: Clip) => void;
   onStopAudio: () => void;
 }) {
@@ -120,7 +126,11 @@ export function WordTable({
             <label className="check-target" htmlFor={selectAllId}>
               <Checkbox
                 id={selectAllId}
-                aria-label="Select all words"
+                aria-label={
+                  cards.length > WORDS_PER_PAGE
+                    ? "Select all matching words across pages"
+                    : "Select all words"
+                }
                 disabled={disabled || !cards.length}
                 checked={all ? true : some ? "indeterminate" : false}
                 onCheckedChange={(checked) => onSelectAll(checked === true)}
@@ -137,7 +147,8 @@ export function WordTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {cards.map((card, index) => {
+        {cards.slice(pageStart, pageStart + WORDS_PER_PAGE).map((card, pageIndex) => {
+          const index = pageStart + pageIndex;
           const isDirty = dirty.has(card.id);
           const isEditing = activeEditing === card.id;
           const label = card.word || card.source_word || "word";
@@ -161,9 +172,10 @@ export function WordTable({
                       }}
                       onCheckedChange={(checked) => {
                         const nextChecked = checked === true;
-                        const anchor = lastToggledId.current
-                          ? cards.findIndex((item) => item.id === lastToggledId.current)
-                          : -1;
+                        const anchor =
+                          shiftHeld.current && lastToggledId.current
+                            ? cards.findIndex((item) => item.id === lastToggledId.current)
+                            : -1;
                         if (
                           shiftHeld.current &&
                           onSelectRange &&
@@ -202,7 +214,7 @@ export function WordTable({
                     </>
                   ) : (
                     <p className="invalid-word">
-                      {card.reason || "Complete the fields before syncing."}
+                      {card.reason || "Fill in and verify this card before syncing."}
                     </p>
                   )}
                 </TableCell>
@@ -249,11 +261,12 @@ export function WordTable({
                       disabled={editDisabled}
                       jobActive={jobActive}
                       audioReady={audioReady}
+                      audioHelp={audioHelp}
                       playingClip={playing?.id === card.id ? playing.kind : null}
                       onChange={(patch) => onChange(card.id, patch)}
                       onSave={() => onSave(card)}
                       onDiscard={() => onDiscard(card.id)}
-                      onRetry={() => onRetry(card)}
+                      onRetry={onRetry && !card.manual ? () => onRetry(card) : undefined}
                       onListen={(kind) => onListen(card, kind)}
                       onClose={() => {
                         if (playing?.id === card.id) onStopAudio();

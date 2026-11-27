@@ -1,6 +1,6 @@
 import { CaretDownIcon } from "@phosphor-icons/react/dist/csr/CaretDown";
 import { useState } from "react";
-import type { AnkiStatus, Preferences } from "../lib";
+import { audioSetupHint, type AnkiStatus, type Preferences, type WoofVoice } from "../lib";
 import { Choice } from "./Choice";
 import { Spinner } from "./Spinner";
 import { Button } from "./ui/button";
@@ -9,43 +9,62 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collap
 import { Field, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 
-type NumericKey = "word_cap" | "tts_rpm" | "call_budget" | "estimated_usd_per_word";
+type NumericKey =
+  | "manual_batch_size"
+  | "word_cap"
+  | "tts_rpm"
+  | "call_budget"
+  | "estimated_usd_per_word";
 
 const numericSpecs: Record<
   NumericKey,
   { label: string; min: number; max: number; integer: boolean }
 > = {
+  manual_batch_size: { label: "Words per manual batch", min: 1, max: 100, integer: true },
   word_cap: { label: "Word cap", min: 1, max: 100, integer: true },
   tts_rpm: { label: "Speech requests per minute", min: 1, max: 120, integer: true },
-  call_budget: { label: "Audio clip ceiling per run", min: 4, max: 1000, integer: true },
+  call_budget: { label: "Max audio clips per run", min: 4, max: 1000, integer: true },
   estimated_usd_per_word: { label: "Estimated USD per word", min: 0, max: 1, integer: false },
 };
 
+type Mode = "api" | "manual";
 export function Settings({
+  mode,
+  providerReady,
+  manualActive,
   settings,
   voices,
-  audioProvider,
-  audioVoice,
+  woofVoices,
+  woofDefaultVoice,
+  woofConfigured,
+  googleAudioAvailable,
+  demo,
   configDir,
   anki,
-  audioReady,
   onSave,
   onAddDeck,
   busy,
 }: {
+  mode: Mode;
+  providerReady: boolean;
+  manualActive: boolean;
   settings: Preferences;
   voices: string[];
-  audioProvider: "demo" | "woof" | "google" | "";
-  audioVoice: string;
+  woofVoices: WoofVoice[];
+  woofDefaultVoice: WoofVoice;
+  woofConfigured: boolean;
+  googleAudioAvailable: boolean;
+  demo: boolean;
   configDir: string;
   anki: AnkiStatus;
-  audioReady: boolean;
-  onSave: (preferences: Preferences) => Promise<void>;
+  onSave: (preferences: Preferences, mode: Mode) => Promise<void>;
   onAddDeck: (name: string) => Promise<void>;
   busy: boolean;
 }) {
+  const [draftMode, setDraftMode] = useState(mode);
   const [draft, setDraft] = useState(settings);
   const [numericText, setNumericText] = useState<Record<NumericKey, string>>(() => ({
+    manual_batch_size: String(settings.manual_batch_size),
     word_cap: String(settings.word_cap),
     tts_rpm: String(settings.tts_rpm),
     call_budget: String(settings.call_budget),
@@ -58,6 +77,15 @@ export function Settings({
   const change = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((old) => ({ ...old, [key]: value }));
   const locked = busy || saving;
+  const googleAudio = draft.audio_provider === "google";
+  const audioReady = demo || (googleAudio ? googleAudioAvailable : woofConfigured);
+  const audioChanges =
+    draft.audio_provider !== settings.audio_provider ||
+    (googleAudio
+      ? draft.voice !== settings.voice || draft.tts_model !== settings.tts_model
+      : (draft.woof_voice ?? woofDefaultVoice) !== (settings.woof_voice ?? woofDefaultVoice));
+  const ankiChanges =
+    draft.deck_parent !== settings.deck_parent || draft.note_type !== settings.note_type;
   const canAddDeck =
     !locked && anki.connected && !!name.trim() && draft.deck_parent === settings.deck_parent;
   const addDeck = async () => {
@@ -68,7 +96,7 @@ export function Settings({
       await onAddDeck(name.trim());
       setName("");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not add deck.");
+      setError(error instanceof Error ? error.message : "Could not add the deck.");
     } finally {
       setSaving(false);
     }
@@ -103,10 +131,9 @@ export function Settings({
       onSubmit={async (event) => {
         event.preventDefault();
         const parsedNumbers: Partial<Record<NumericKey, number>> = {};
-        const keys: NumericKey[] =
-          audioProvider === "woof"
-            ? ["word_cap", "call_budget"]
-            : ["word_cap", "tts_rpm", "call_budget", "estimated_usd_per_word"];
+        const keys: NumericKey[] = googleAudio
+          ? ["manual_batch_size", "word_cap", "tts_rpm", "call_budget", "estimated_usd_per_word"]
+          : ["manual_batch_size", "word_cap", "call_budget"];
         for (const key of keys) {
           const spec = numericSpecs[key];
           const raw = numericText[key].trim();
@@ -128,14 +155,17 @@ export function Settings({
         setSaving(true);
         setError("");
         try {
-          await onSave({
-            ...draft,
-            ...parsedNumbers,
-            seed_decks: subjects
-              .split(",")
-              .map((value) => value.trim())
-              .filter(Boolean),
-          });
+          await onSave(
+            {
+              ...draft,
+              ...parsedNumbers,
+              seed_decks: subjects
+                .split(",")
+                .map((value) => value.trim())
+                .filter(Boolean),
+            },
+            draftMode,
+          );
         } catch (error) {
           setError(error instanceof Error ? error.message : "Could not save settings.");
         } finally {
@@ -143,26 +173,37 @@ export function Settings({
         }
       }}
     >
+      <Choice
+        id="generation-mode"
+        label="Generation mode"
+        value={draftMode}
+        options={[
+          { value: "manual", label: "Manual copy & paste" },
+          {
+            value: "api",
+            label: providerReady ? "Automatic generation" : "Automatic (not configured)",
+            disabled: !providerReady,
+          },
+        ]}
+        onChange={(value) => setDraftMode(value as "api" | "manual")}
+        disabled={locked || manualActive}
+      />
       <div className="settings-grid">
-        {audioProvider === "woof" ? (
-          <Field className="gap-1.5 settings-note">
-            <FieldLabel>Audio</FieldLabel>
-            <p className="help">
-              Local (Woof), voice <strong>{audioVoice}</strong>. Set <code>WOOF_VOICE</code> in the
-              config <code>.env</code> to switch between <code>juno</code> and <code>mira</code>.
-            </p>
-          </Field>
-        ) : (
+        {!googleAudio && (
           <Choice
-            label="Voice"
-            value={draft.voice}
-            disabled={locked || !audioReady}
-            options={voices.map((value) => ({ value, label: value }))}
-            onChange={(value) => change("voice", value)}
+            label="Woof voice"
+            value={draft.woof_voice ?? woofDefaultVoice}
+            disabled={locked}
+            options={woofVoices.map((value) => ({
+              value,
+              label: value === "juno" ? "Juno" : "Mira",
+            }))}
+            onChange={(value) => change("woof_voice", value as WoofVoice)}
           />
         )}
+        {input("manual_batch_size", "Words per manual batch", { min: 1, max: 100 })}
         <Choice
-          label="Words per request"
+          label="Words per API request"
           value={String(draft.batch_size)}
           disabled={locked}
           options={[1, 3, 5].map((value) => ({ value: String(value), label: String(value) }))}
@@ -189,13 +230,13 @@ export function Settings({
           onCheckedChange={(checked) => change("auto_audio", checked === true)}
         />
         <FieldLabel htmlFor="settings-auto_audio">
-          Record audio automatically after writing words and saving edits
+          Record audio after generating words or saving edits
         </FieldLabel>
       </Field>
-      {!audioReady && (
+      {!audioReady && <p className="help">{audioSetupHint(draft.audio_provider)}</p>}
+      {audioChanges && (
         <p className="help">
-          Audio needs a Google Cloud project or <code>WOOF_MODEL_DIR</code> in the config{" "}
-          <code>.env</code>. Words generate without it.
+          Saving removes mismatched clips from cards. Gloss keeps the audio files.
         </p>
       )}
       <section className="settings-section">
@@ -205,7 +246,9 @@ export function Settings({
           {input("deck_default", "Default subdeck")}
           {input("note_type", "Note type")}
           <Field className="gap-1.5">
-            <FieldLabel htmlFor="settings-subjects">Starting subdecks (comma separated)</FieldLabel>
+            <FieldLabel htmlFor="settings-subjects">
+              Starting subdecks, separated by commas
+            </FieldLabel>
             <Input
               id="settings-subjects"
               disabled={locked}
@@ -214,7 +257,9 @@ export function Settings({
             />
           </Field>
         </div>
-        <p className="help">Run Anki setup after changing the parent deck or note type.</p>
+        {ankiChanges && (
+          <p className="help">After saving, open Anki in Gloss and choose Set up Anki.</p>
+        )}
         <div className="add-deck">
           <Field className="gap-1.5">
             <FieldLabel htmlFor="new-deck">New subdeck</FieldLabel>
@@ -244,12 +289,34 @@ export function Settings({
           </Button>
         </CollapsibleTrigger>
         <CollapsibleContent>
+          <Choice
+            label="Audio engine"
+            value={draft.audio_provider}
+            disabled={locked}
+            options={[
+              { value: "woof", label: "Woof (local)" },
+              {
+                value: "google",
+                label: googleAudioAvailable ? "Google Cloud" : "Google Cloud (not configured)",
+                disabled: !googleAudioAvailable,
+              },
+            ]}
+            onChange={(value) => change("audio_provider", value as Preferences["audio_provider"])}
+          />
           <div className="settings-grid">
             {input("text_model", "Text model")}
-            {audioProvider !== "woof" && input("tts_model", "Speech model")}
-            {audioProvider !== "woof" &&
-              input("tts_rpm", "Speech requests per minute", { min: 1, max: 120 })}
-            {audioProvider !== "woof" && (
+            {googleAudio && (
+              <Choice
+                label="Google voice"
+                value={draft.voice}
+                disabled={locked || !googleAudioAvailable}
+                options={voices.map((value) => ({ value, label: value }))}
+                onChange={(value) => change("voice", value)}
+              />
+            )}
+            {googleAudio && input("tts_model", "Speech model")}
+            {googleAudio && input("tts_rpm", "Speech requests per minute", { min: 1, max: 120 })}
+            {googleAudio && (
               <Choice
                 label="Concurrent speech requests"
                 value={String(draft.tts_concurrency)}
@@ -261,19 +328,14 @@ export function Settings({
                 onChange={(value) => change("tts_concurrency", Number(value))}
               />
             )}
-            {input("call_budget", "Audio clip ceiling per run", { min: 4, max: 1000 })}
-            {audioProvider !== "woof" &&
+            {input("call_budget", "Max audio clips per run", { min: 4, max: 1000 })}
+            {googleAudio &&
               input("estimated_usd_per_word", "Estimated USD per word", {
                 min: 0,
                 max: 1,
                 step: 0.0001,
               })}
           </div>
-          <p className="help">
-            {audioProvider === "woof"
-              ? "A local voice ignores the speech model, quota and concurrency settings, and its clips cost nothing."
-              : "Changing the voice or speech model clears audio from the editor. Original clips remain cached."}
-          </p>
           <p className="config-location">
             Configuration directory: <code>{configDir}</code>
           </p>
